@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ShiftManagement.Data;
+using ShiftManagement.DTOs;
 using ShiftManagement.Models;
 
 namespace ShiftManagement.Controllers
@@ -16,37 +17,116 @@ namespace ShiftManagement.Controllers
             _context = context;
         }
 
+        // GET: api/Holidays
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Holiday>>> GetHolidays()
+        public async Task<ActionResult<IEnumerable<HolidayDto>>> GetHolidays()
         {
-            return await _context.Holidays.Include(h => h.DefaultShiftCode).ToListAsync();
+            var list = await _context.Holidays
+                .AsNoTracking()
+                .Include(h => h.DefaultShiftCode)
+                .Select(h => new HolidayDto
+                {
+                    HolidayID = h.HolidayID,
+                    Date = h.Date,
+                    // ép nullable int về int với 0 là default nếu null
+                    DefaultShiftCodeID = h.DefaultShiftCodeID ?? 0,
+                    DefaultShiftCode = h.DefaultShiftCode != null ? h.DefaultShiftCode.Code : string.Empty
+                })
+                .ToListAsync();
+
+            return Ok(list);
         }
 
+        // GET: api/Holidays/5
+        [HttpGet("{id:int}")]
+        public async Task<ActionResult<HolidayDto>> GetHoliday(int id)
+        {
+            var h = await _context.Holidays
+                .AsNoTracking()
+                .Include(h => h.DefaultShiftCode)
+                .FirstOrDefaultAsync(h => h.HolidayID == id);
+
+            if (h == null)
+                return NotFound();
+
+            var dto = new HolidayDto
+            {
+                HolidayID = h.HolidayID,
+                Date = h.Date,
+                DefaultShiftCodeID = h.DefaultShiftCodeID ?? 0,
+                DefaultShiftCode = h.DefaultShiftCode != null ? h.DefaultShiftCode.Code : string.Empty
+            };
+            return Ok(dto);
+        }
+
+        // POST: api/Holidays
         [HttpPost]
-        public async Task<ActionResult<Holiday>> PostHoliday(Holiday holiday)
+        public async Task<ActionResult<HolidayDto>> PostHoliday([FromBody] HolidayCreateDto createDto)
         {
-            _context.Holidays.Add(holiday);
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var entity = new Holiday
+            {
+                Date = createDto.Date,
+                DefaultShiftCodeID = createDto.DefaultShiftCodeID
+            };
+
+            _context.Holidays.Add(entity);
             await _context.SaveChangesAsync();
-            return CreatedAtAction(nameof(GetHolidays), new { id = holiday.HolidayID }, holiday);
+
+            // load navigation để lấy code
+            await _context.Entry(entity)
+                          .Reference(h => h.DefaultShiftCode)
+                          .LoadAsync();
+
+            var result = new HolidayDto
+            {
+                HolidayID = entity.HolidayID,
+                Date = entity.Date,
+                DefaultShiftCodeID = entity.DefaultShiftCodeID ?? 0,
+                DefaultShiftCode = entity.DefaultShiftCode != null ? entity.DefaultShiftCode.Code : string.Empty
+            };
+
+            return CreatedAtAction(
+                nameof(GetHoliday),
+                new { id = result.HolidayID },
+                result
+            );
         }
 
-        [HttpPut("{id}")]
-        public async Task<IActionResult> PutHoliday(int id, Holiday holiday)
+        // PUT: api/Holidays/5
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> PutHoliday(int id, [FromBody] HolidayUpdateDto updateDto)
         {
-            if (id != holiday.HolidayID) return BadRequest();
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
 
-            _context.Entry(holiday).State = EntityState.Modified;
+            if (id != updateDto.HolidayID)
+                return BadRequest("ID không khớp.");
+
+            var existing = await _context.Holidays.FindAsync(id);
+            if (existing == null)
+                return NotFound();
+
+            existing.Date = updateDto.Date;
+            existing.DefaultShiftCodeID = updateDto.DefaultShiftCodeID;
+
+            _context.Entry(existing).State = EntityState.Modified;
             await _context.SaveChangesAsync();
+
             return NoContent();
         }
 
-        [HttpDelete("{id}")]
+        // DELETE: api/Holidays/5
+        [HttpDelete("{id:int}")]
         public async Task<IActionResult> DeleteHoliday(int id)
         {
-            var holiday = await _context.Holidays.FindAsync(id);
-            if (holiday == null) return NotFound();
+            var existing = await _context.Holidays.FindAsync(id);
+            if (existing == null)
+                return NotFound();
 
-            _context.Holidays.Remove(holiday);
+            _context.Holidays.Remove(existing);
             await _context.SaveChangesAsync();
             return NoContent();
         }
