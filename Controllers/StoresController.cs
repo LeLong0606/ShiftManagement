@@ -2,6 +2,8 @@
 using Microsoft.EntityFrameworkCore;
 using ShiftManagement.Data;
 using ShiftManagement.DTOs;
+using ShiftManagement.Models;
+using Microsoft.AspNetCore.Authorization;
 
 namespace ShiftManagement.Controllers
 {
@@ -16,68 +18,85 @@ namespace ShiftManagement.Controllers
             _context = context;
         }
 
-        // GET: api/Stores
+        /// <summary>
+        /// [GET] Lấy danh sách cửa hàng. Có thể phân trang và tìm kiếm.
+        /// Chỉ tài khoản đã đăng nhập mới truy cập được.
+        /// </summary>
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<StoreDto>>> GetStores()
+        [Authorize]
+        public async Task<ActionResult<IEnumerable<StoreDto>>> GetStores(
+            [FromQuery] string? search = "",
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 50)
         {
-            var stores = await _context.Stores
-                .AsNoTracking()
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 50;
+
+            var query = _context.Stores.AsNoTracking();
+
+            if (!string.IsNullOrEmpty(search))
+            {
+                string pattern = $"%{search}%";
+                query = query.Where(s =>
+                    EF.Functions.Like(s.StoreName, pattern) ||
+                    (s.Address != null && EF.Functions.Like(s.Address, pattern)) ||
+                    (s.Phone != null && EF.Functions.Like(s.Phone, pattern)));
+            }
+
+            var stores = await query
+                .OrderBy(s => s.StoreID)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .Select(s => new StoreDto
                 {
                     StoreID = s.StoreID,
                     StoreName = s.StoreName,
                     Address = s.Address,
-                    Phone = s.Phone,
-                    Departments = s.Departments
-                        .Select(d => new DepartmentDto
-                        {
-                            DepartmentID = d.DepartmentID,
-                            DepartmentName = d.DepartmentName
-                        })
-                        .ToList()
+                    Phone = s.Phone
                 })
                 .ToListAsync();
 
             return Ok(stores);
         }
 
-        // GET: api/Stores/5
+        /// <summary>
+        /// [GET] Lấy thông tin chi tiết một cửa hàng theo ID.
+        /// Chỉ tài khoản đã đăng nhập mới truy cập được.
+        /// </summary>
         [HttpGet("{id:int}")]
+        [Authorize]
         public async Task<ActionResult<StoreDto>> GetStore(int id)
         {
             var store = await _context.Stores
                 .AsNoTracking()
-                .Where(s => s.StoreID == id)
-                .Select(s => new StoreDto
-                {
-                    StoreID = s.StoreID,
-                    StoreName = s.StoreName,
-                    Address = s.Address,
-                    Phone = s.Phone,
-                    Departments = s.Departments
-                        .Select(d => new DepartmentDto
-                        {
-                            DepartmentID = d.DepartmentID,
-                            DepartmentName = d.DepartmentName
-                        })
-                        .ToList()
-                })
-                .FirstOrDefaultAsync();
+                .Include(s => s.Departments)
+                .FirstOrDefaultAsync(s => s.StoreID == id);
 
             if (store == null)
                 return NotFound();
 
-            return Ok(store);
+            var dto = new StoreDto
+            {
+                StoreID = store.StoreID,
+                StoreName = store.StoreName,
+                Address = store.Address,
+                Phone = store.Phone
+            };
+
+            return Ok(dto);
         }
 
-        // POST: api/Stores
+        /// <summary>
+        /// [POST] Tạo mới một cửa hàng. Chỉ Admin có quyền tạo.
+        /// </summary>
         [HttpPost]
+        [Authorize(Roles = "Admin")]
         public async Task<ActionResult<StoreDto>> PostStore([FromBody] StoreCreateDto dto)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            var store = new Models.Store
+            var store = new Store
             {
                 StoreName = dto.StoreName,
                 Address = dto.Address,
@@ -87,21 +106,22 @@ namespace ShiftManagement.Controllers
             _context.Stores.Add(store);
             await _context.SaveChangesAsync();
 
-            // map lại thành DTO để trả về
             var resultDto = new StoreDto
             {
                 StoreID = store.StoreID,
                 StoreName = store.StoreName,
                 Address = store.Address,
-                Phone = store.Phone,
-                Departments = new()
+                Phone = store.Phone
             };
 
             return CreatedAtAction(nameof(GetStore), new { id = store.StoreID }, resultDto);
         }
 
-        // PUT: api/Stores/5
+        /// <summary>
+        /// [PUT] Cập nhật thông tin cửa hàng theo ID. Chỉ Admin có quyền sửa.
+        /// </summary>
         [HttpPut("{id:int}")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> PutStore(int id, [FromBody] StoreUpdateDto dto)
         {
             if (!ModelState.IsValid)
@@ -119,8 +139,11 @@ namespace ShiftManagement.Controllers
             return NoContent();
         }
 
-        // DELETE: api/Stores/5
+        /// <summary>
+        /// [DELETE] Xóa cửa hàng theo ID. Chỉ Admin có quyền xóa.
+        /// </summary>
         [HttpDelete("{id:int}")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteStore(int id)
         {
             var store = await _context.Stores.FindAsync(id);

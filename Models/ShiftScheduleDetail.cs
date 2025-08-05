@@ -7,18 +7,12 @@ namespace ShiftManagement.Models
     {
         [Key]
         public int DetailID { get; set; }
-
-        [ForeignKey("ShiftSchedule")]
         public int ScheduleID { get; set; }
-        public ShiftSchedule Schedule { get; set; }
-
-        [ForeignKey("ShiftCodes")]
         public int ShiftCodeID { get; set; }
-        public ShiftCode ShiftCode { get; set; }
+        public string ShiftType { get; set; } = "Morning"; // default
+        public decimal WorkUnit { get; set; }
 
-        [MaxLength(20)]
-        public string ShiftType { get; set; } = "Morning";
-
-        public decimal WorkUnit { get; set; } = 1;
+        public ShiftSchedule? ShiftSchedule { get; set; }
+        public ShiftCode? ShiftCode { get; set; }
     }
 }

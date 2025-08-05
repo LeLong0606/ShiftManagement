@@ -7,20 +7,14 @@ using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ======================
 // 1️⃣ Đăng ký DbContext
-// ======================
 builder.Services.AddDbContext<ShiftManagementContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// ======================
 // 2️⃣ Đăng ký MemoryCache
-// ======================
 builder.Services.AddMemoryCache();
 
-// ======================
 // 3️⃣ Cấu hình CORS
-// ======================
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowBlazorClient",
@@ -30,17 +24,13 @@ builder.Services.AddCors(options =>
                         .AllowCredentials());
 });
 
-// ======================
 // 4️⃣ Cấu hình Controllers & JSON
-// ======================
 builder.Services.AddControllers()
     .AddJsonOptions(x =>
         x.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles
     );
 
-// ======================
 // 5️⃣ Cấu hình Authentication (JWT)
-// ======================
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -59,9 +49,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
-// ======================
 // 6️⃣ Swagger + JWT Support
-// ======================
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -71,7 +59,6 @@ builder.Services.AddSwaggerGen(c =>
         Version = "v1"
     });
 
-    // Thêm hỗ trợ JWT vào Swagger
     c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
     {
         Name = "Authorization",
@@ -100,9 +87,7 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// ======================
 // 7️⃣ Pipeline Middleware
-// ======================
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -118,5 +103,13 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// 8️⃣ TỰ ĐỘNG MIGRATE VÀ SEED DATA
+using (var scope = app.Services.CreateScope())
+{
+    var context = scope.ServiceProvider.GetRequiredService<ShiftManagementContext>();
+    context.Database.Migrate(); // Tự động cập nhật/migrate DB
+    SeedData.Initialize(context); // Seed dữ liệu mẫu
+}
 
 app.Run();

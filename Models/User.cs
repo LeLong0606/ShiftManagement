@@ -9,49 +9,23 @@ namespace ShiftManagement.Models
     {
         [Key]
         public int UserID { get; set; }
-
-        [Required]
-        [MaxLength(50)]
-        public string Username { get; set; }
-
-        [Required]
-        [MaxLength(255)]
-        public string PasswordHash { get; set; }
-
-        [MaxLength(100)]
-        public string FullName { get; set; }
-
-        [MaxLength(100)]
-        public string Email { get; set; }
-
-        [MaxLength(20)]
-        public string PhoneNumber { get; set; }
-
-        // 🔹 Quan hệ với Department
+        public string Username { get; set; } = string.Empty;
+        public string PasswordHash { get; set; } = string.Empty;
+        public string? FullName { get; set; }
+        public string? Email { get; set; }
+        public string? PhoneNumber { get; set; }
         public int? DepartmentID { get; set; }
-        [ForeignKey("DepartmentID")]
-        public Department Department { get; set; }
-
-        // 🔹 Quan hệ với Store
         public int? StoreID { get; set; }
-        [ForeignKey("StoreID")]
-        public Store Store { get; set; }
+        public bool Status { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
 
-        public bool Status { get; set; } = true;
-
-        public DateTime CreatedAt { get; set; } = DateTime.Now;
-        public DateTime UpdatedAt { get; set; } = DateTime.Now;
-
-        // 🔹 Navigation Properties
-        public ICollection<UserRole> UserRoles { get; set; }
-
-        // Lịch mà user này là nhân viên (Employee)
-        public ICollection<ShiftSchedule> ShiftSchedules { get; set; }
-
-        // Lịch mà user này là người tạo (CreatedBy)
-        public ICollection<ShiftSchedule> CreatedSchedules { get; set; }
-
-        public ICollection<ShiftHistory> ShiftHistories { get; set; }
-        public ICollection<Log> Logs { get; set; }
+        public Department? Department { get; set; }
+        public Store? Store { get; set; }
+        public ICollection<UserRole>? UserRoles { get; set; }
+        public ICollection<Log>? Logs { get; set; }
+        public ICollection<ShiftSchedule>? ShiftSchedules { get; set; }
+        public ICollection<ShiftSchedule>? CreatedSchedules { get; set; }
+        public ICollection<ShiftHistory>? ShiftHistories { get; set; }
     }
 }

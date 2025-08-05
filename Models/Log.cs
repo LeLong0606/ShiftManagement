@@ -8,13 +8,11 @@ namespace ShiftManagement.Models
     {
         [Key]
         public int LogID { get; set; }
-
-        [ForeignKey("Users")]
         public int? UserID { get; set; }
-        public User User { get; set; }
+        public string? Action { get; set; }
+        public string? Description { get; set; }
+        public DateTime Timestamp { get; set; }
 
-        public string Action { get; set; }
-
-        public DateTime Timestamp { get; set; } = DateTime.Now;
+        public User? User { get; set; }
     }
 }

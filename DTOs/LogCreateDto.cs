@@ -3,12 +3,14 @@ using System.ComponentModel.DataAnnotations;
 
 namespace ShiftManagement.DTOs
 {
+    /// <summary>
+    /// DTO dùng cho API tạo mới log.
+    /// </summary>
     public class LogCreateDto
     {
-        [Required]
-        public int UserID { get; set; }    // <-- non-nullable
-
-        [Required]
-        public string Action { get; set; } = default!;
+        public int UserID { get; set; }
+        public string Action { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public DateTime? Timestamp { get; set; }
     }
 }

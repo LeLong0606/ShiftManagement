@@ -8,18 +8,13 @@ namespace ShiftManagement.Models
     {
         [Key]
         public int DepartmentID { get; set; }
-
-        [Required]
-        [MaxLength(100)]
-        public string DepartmentName { get; set; }
-
-        [ForeignKey("Stores")]
+        public string DepartmentName { get; set; } = string.Empty;
         public int StoreID { get; set; }
-        public Store Store { get; set; }
-
         public int? ManagerID { get; set; }
 
-        public ICollection<User> Users { get; set; }
-        public ICollection<ShiftSchedule> ShiftSchedules { get; set; }
+        public Store? Store { get; set; }
+        public User? Manager { get; set; }
+        public ICollection<User>? Users { get; set; }
+        public ICollection<ShiftSchedule>? ShiftSchedules { get; set; }
     }
 }

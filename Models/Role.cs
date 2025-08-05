@@ -7,11 +7,8 @@ namespace ShiftManagement.Models
     {
         [Key]
         public int RoleID { get; set; }
+        public string RoleName { get; set; } = string.Empty;
 
-        [Required]
-        [MaxLength(50)]
-        public string RoleName { get; set; }
-
-        public ICollection<UserRole> UserRoles { get; set; }
+        public ICollection<UserRole>? UserRoles { get; set; }
     }
 }

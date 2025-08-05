@@ -1,13 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Security.Claims;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ShiftManagement.Data;
 using ShiftManagement.DTOs;
 using ShiftManagement.Models;
+using Microsoft.AspNetCore.Authorization;
 
 namespace ShiftManagement.Controllers
 {
@@ -22,69 +18,83 @@ namespace ShiftManagement.Controllers
             _context = context;
         }
 
-        // GET: api/Schedules?from=2025-08-01&to=2025-08-31&departmentId=1
+        /// <summary>
+        /// [GET] Lấy danh sách lịch làm việc, hỗ trợ lọc theo ngày, phòng ban. Có phân trang.
+        /// Chỉ tài khoản đã đăng nhập mới truy cập được.
+        /// </summary>
         [HttpGet]
+        [Authorize]
         public async Task<ActionResult<IEnumerable<ShiftScheduleDto>>> GetSchedules(
             [FromQuery] DateTime? from,
             [FromQuery] DateTime? to,
-            [FromQuery] int? departmentId)
+            [FromQuery] int? departmentId,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 50)
         {
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 50;
+
             var query = _context.ShiftSchedules
                 .AsNoTracking()
                 .Include(s => s.Employee)
                 .Include(s => s.CreatedUser)
                 .Include(s => s.Department)
                 .Include(s => s.Store)
-                .Include(s => s.ShiftScheduleDetails!)
-                    .ThenInclude(d => d.ShiftCode)
+                .Include(s => s.ShiftScheduleDetails).ThenInclude(d => d.ShiftCode)
                 .AsQueryable();
 
-            if (from.HasValue) query = query.Where(s => s.Date >= from.Value);
-            if (to.HasValue) query = query.Where(s => s.Date <= to.Value);
-            if (departmentId.HasValue) query = query.Where(s => s.DepartmentID == departmentId.Value);
+            if (from.HasValue)
+                query = query.Where(s => s.Date >= from.Value);
+            if (to.HasValue)
+                query = query.Where(s => s.Date <= to.Value);
+            if (departmentId.HasValue)
+                query = query.Where(s => s.DepartmentID == departmentId.Value);
 
-            var list = await query
+            var result = await query
                 .OrderBy(s => s.Date)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .Select(s => new ShiftScheduleDto
                 {
                     ScheduleID = s.ScheduleID,
                     EmployeeID = s.EmployeeID,
-                    EmployeeName = s.Employee.FullName!,
+                    EmployeeName = s.Employee.FullName,
                     DepartmentID = s.DepartmentID,
-                    DepartmentName = s.Department!.DepartmentName,
+                    DepartmentName = s.Department != null ? s.Department.DepartmentName : "",
                     StoreID = s.StoreID,
-                    StoreName = s.Store!.StoreName,
+                    StoreName = s.Store != null ? s.Store.StoreName : "",
                     Date = s.Date,
-                    CreatedBy = s.CreatedBy ?? 0,                       // ① int? → int
-                    CreatedUser = s.CreatedUser.Username,                // ② User → string
+                    CreatedBy = s.CreatedBy ?? 0,
+                    CreatedUser = s.CreatedUser != null ? s.CreatedUser.Username : "",
                     CreatedAt = s.CreatedAt,
                     UpdatedAt = s.UpdatedAt,
-                    Details = s.ShiftScheduleDetails!
-                        .Select(d => new ShiftScheduleDetailDto
+                    Details = s.ShiftScheduleDetails != null
+                        ? s.ShiftScheduleDetails.Select(d => new ShiftScheduleDetailDto
                         {
                             DetailID = d.DetailID,
                             ShiftCodeID = d.ShiftCodeID,
-                            ShiftCode = d.ShiftCode!.Code,
+                            ShiftCode = d.ShiftCode != null ? d.ShiftCode.Code : "",
                             ShiftType = d.ShiftType,
-                            WorkUnit = (int)d.WorkUnit                   // ③ decimal → int
-                        })
-                        .ToList()
+                            WorkUnit = Convert.ToInt32(d.WorkUnit)
+                        }).ToList()
+                        : new List<ShiftScheduleDetailDto>()
                 })
                 .ToListAsync();
 
-            return Ok(list);
+            return Ok(result);
         }
 
-        // POST: api/Schedules
+        /// <summary>
+        /// [POST] Tạo mới lịch làm việc. Chỉ Admin hoặc Manager được tạo.
+        /// </summary>
         [HttpPost]
-        public async Task<ActionResult<ShiftScheduleDto>> PostSchedule(
-            [FromBody] ShiftScheduleCreateDto dto)
+        [Authorize(Roles = "Admin,Manager")]
+        public async Task<ActionResult<ShiftScheduleDto>> PostSchedule([FromBody] ShiftScheduleCreateDto dto)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            // Lấy userID từ JWT claims (nếu có)
-            var createdById = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
+            var createdById = int.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var value) ? value : 0;
 
             var entity = new ShiftSchedule
             {
@@ -92,111 +102,117 @@ namespace ShiftManagement.Controllers
                 DepartmentID = dto.DepartmentID,
                 StoreID = dto.StoreID,
                 Date = dto.Date,
-                CreatedBy = createdById,  // ⑤ gán vào int? CreatedBy
+                CreatedBy = createdById,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
-                ShiftScheduleDetails = dto.Details
-                    .Select(d => new ShiftScheduleDetail
+                ShiftScheduleDetails = dto.Details != null
+                    ? dto.Details.Select(d => new ShiftScheduleDetail
                     {
                         ShiftCodeID = d.ShiftCodeID,
                         ShiftType = d.ShiftType,
-                        WorkUnit = d.WorkUnit ?? 0   // ⑧ nullable int → int
-                    })
-                    .ToList()
+                        WorkUnit = d.WorkUnit ?? 0
+                    }).ToList()
+                    : new List<ShiftScheduleDetail>()
             };
 
             _context.ShiftSchedules.Add(entity);
             await _context.SaveChangesAsync();
 
-            // Load navigation để mapping DTO
+            // Load navigation để trả về DTO đầy đủ
             await _context.Entry(entity).Reference(s => s.Employee).LoadAsync();
             await _context.Entry(entity).Reference(s => s.Department).LoadAsync();
             await _context.Entry(entity).Reference(s => s.Store).LoadAsync();
             await _context.Entry(entity).Reference(s => s.CreatedUser).LoadAsync();
             await _context.Entry(entity).Collection(s => s.ShiftScheduleDetails).LoadAsync();
-            foreach (var detail in entity.ShiftScheduleDetails!)
+            foreach (var detail in entity.ShiftScheduleDetails)
                 await _context.Entry(detail).Reference(d => d.ShiftCode).LoadAsync();
 
             var result = new ShiftScheduleDto
             {
                 ScheduleID = entity.ScheduleID,
                 EmployeeID = entity.EmployeeID,
-                EmployeeName = entity.Employee.FullName!,
+                EmployeeName = entity.Employee?.FullName ?? "",
                 DepartmentID = entity.DepartmentID,
-                DepartmentName = entity.Department!.DepartmentName,
+                DepartmentName = entity.Department?.DepartmentName ?? "",
                 StoreID = entity.StoreID,
-                StoreName = entity.Store!.StoreName,
+                StoreName = entity.Store?.StoreName ?? "",
                 Date = entity.Date,
-                CreatedBy = entity.CreatedBy ?? 0,             // ⑥ int? → int
-                CreatedUser = entity.CreatedUser.Username,      // ⑦ User → string
+                CreatedBy = entity.CreatedBy ?? 0,
+                CreatedUser = entity.CreatedUser?.Username ?? "",
                 CreatedAt = entity.CreatedAt,
                 UpdatedAt = entity.UpdatedAt,
-                Details = entity.ShiftScheduleDetails!
-                    .Select(d => new ShiftScheduleDetailDto
+                Details = entity.ShiftScheduleDetails != null
+                    ? entity.ShiftScheduleDetails.Select(d => new ShiftScheduleDetailDto
                     {
                         DetailID = d.DetailID,
                         ShiftCodeID = d.ShiftCodeID,
-                        ShiftCode = d.ShiftCode!.Code,            // ⑦ mapping mã ca
+                        ShiftCode = d.ShiftCode?.Code ?? "",
                         ShiftType = d.ShiftType,
-                        WorkUnit = (int)d.WorkUnit               // ⑧ decimal → int
-                    })
-                    .ToList()
+                        WorkUnit = Convert.ToInt32(d.WorkUnit)
+                    }).ToList()
+                    : new List<ShiftScheduleDetailDto>()
             };
 
-            return CreatedAtAction(
-                nameof(GetSchedules),
+            return CreatedAtAction(nameof(GetSchedules),
                 new { from = result.Date, to = result.Date, departmentId = result.DepartmentID },
-                result
-            );
+                result);
         }
 
-        // PUT: api/Schedules/5
+        /// <summary>
+        /// [PUT] Cập nhật lịch làm việc. Chỉ Admin hoặc Manager được sửa.
+        /// </summary>
         [HttpPut("{id:int}")]
-        public async Task<IActionResult> PutSchedule(
-            int id,
-            [FromBody] ShiftScheduleUpdateDto dto)
+        [Authorize(Roles = "Admin,Manager")]
+        public async Task<IActionResult> PutSchedule(int id, [FromBody] ShiftScheduleUpdateDto dto)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
-            if (id != dto.ScheduleID)
-                return BadRequest("ID mismatch");
 
-            var existing = await _context.ShiftSchedules
-                .Include(s => s.ShiftScheduleDetails!)
+            var entity = await _context.ShiftSchedules
+                .Include(s => s.ShiftScheduleDetails)
                 .FirstOrDefaultAsync(s => s.ScheduleID == id);
-            if (existing == null)
+
+            if (entity == null)
                 return NotFound();
 
-            existing.EmployeeID = dto.EmployeeID;
-            existing.DepartmentID = dto.DepartmentID;
-            existing.StoreID = dto.StoreID;
-            existing.Date = dto.Date;
-            existing.UpdatedAt = DateTime.UtcNow;
+            // Cập nhật các trường chính
+            entity.EmployeeID = dto.EmployeeID;
+            entity.DepartmentID = dto.DepartmentID;
+            entity.StoreID = dto.StoreID;
+            entity.Date = dto.Date;
+            entity.UpdatedAt = DateTime.UtcNow;
 
-            // Thay thế chi tiết cũ bằng chi tiết mới
-            _context.ShiftScheduleDetails.RemoveRange(existing.ShiftScheduleDetails!);
-            existing.ShiftScheduleDetails = dto.Details
-                .Select(d => new ShiftScheduleDetail
+            // Xử lý cập nhật chi tiết ca làm việc
+            entity.ShiftScheduleDetails.Clear();
+            if (dto.Details != null)
+            {
+                foreach (var d in dto.Details)
                 {
-                    ShiftCodeID = d.ShiftCodeID,
-                    ShiftType = d.ShiftType,
-                    WorkUnit = d.WorkUnit ?? 0
-                })
-                .ToList();
+                    entity.ShiftScheduleDetails.Add(new ShiftScheduleDetail
+                    {
+                        ShiftCodeID = d.ShiftCodeID,
+                        ShiftType = d.ShiftType,
+                        WorkUnit = d.WorkUnit ?? 0
+                    });
+                }
+            }
 
             await _context.SaveChangesAsync();
             return NoContent();
         }
 
-        // DELETE: api/Schedules/5
+        /// <summary>
+        /// [DELETE] Xóa lịch làm việc theo ID. Chỉ Admin hoặc Manager được xóa.
+        /// </summary>
         [HttpDelete("{id:int}")]
+        [Authorize(Roles = "Admin,Manager")]
         public async Task<IActionResult> DeleteSchedule(int id)
         {
-            var existing = await _context.ShiftSchedules.FindAsync(id);
-            if (existing == null)
+            var entity = await _context.ShiftSchedules.FindAsync(id);
+            if (entity == null)
                 return NotFound();
 
-            _context.ShiftSchedules.Remove(existing);
+            _context.ShiftSchedules.Remove(entity);
             await _context.SaveChangesAsync();
             return NoContent();
         }

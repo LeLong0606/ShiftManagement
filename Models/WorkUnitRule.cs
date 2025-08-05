@@ -8,12 +8,10 @@ namespace ShiftManagement.Models
     {
         [Key]
         public int RuleID { get; set; }
-
-        [ForeignKey("ShiftCodes")]
         public int ShiftCodeID { get; set; }
-        public ShiftCode ShiftCode { get; set; }
-
-        public DateTime EffectiveDate { get; set; } = DateTime.Now;
+        public DateTime EffectiveDate { get; set; }
         public decimal WorkUnit { get; set; }
+
+        public ShiftCode? ShiftCode { get; set; }
     }
 }

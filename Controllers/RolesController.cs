@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using ShiftManagement.Data;
 using ShiftManagement.DTOs;
 using ShiftManagement.Models;
+using Microsoft.AspNetCore.Authorization;
 
 namespace ShiftManagement.Controllers
 {
@@ -17,79 +18,128 @@ namespace ShiftManagement.Controllers
             _context = context;
         }
 
-        // GET: api/Roles
-        // Trả về list RoleDto (chỉ có ID + Name)
+        /// <summary>
+        /// [GET] Lấy danh sách tất cả role. Chỉ tài khoản đã đăng nhập mới truy cập được.
+        /// </summary>
         [HttpGet]
-        public async Task<ActionResult<List<RoleDto>>> GetRoles()
+        [Authorize]
+        public async Task<ActionResult<IEnumerable<RoleDto>>> GetRoles(
+            [FromQuery] string? search = "",
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 50)
         {
-            var list = await _context.Roles
-                .AsNoTracking()
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 50;
+
+            var query = _context.Roles.AsNoTracking();
+
+            if (!string.IsNullOrEmpty(search))
+            {
+                string pattern = $"%{search}%";
+                query = query.Where(r => EF.Functions.Like(r.RoleName, pattern));
+            }
+
+            var roles = await query
+                .OrderBy(r => r.RoleID)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .Select(r => new RoleDto
                 {
                     RoleID = r.RoleID,
                     RoleName = r.RoleName
+                    // Nếu có thêm trường trong DTO thì bổ sung ở đây
                 })
                 .ToListAsync();
 
-            return Ok(list);
+            return Ok(roles);
         }
 
-        // GET: api/Roles/5
-        // Trả về RoleDto hoặc RoleWithUsersDto nếu muốn kèm username
+        /// <summary>
+        /// [GET] Lấy thông tin chi tiết một role theo ID. Chỉ tài khoản đã đăng nhập mới truy cập được.
+        /// </summary>
         [HttpGet("{id:int}")]
-        public async Task<ActionResult<RoleWithUsersDto>> GetRole(int id)
+        [Authorize]
+        public async Task<ActionResult<RoleDto>> GetRole(int id)
         {
             var role = await _context.Roles
                 .AsNoTracking()
-                // Include userRoles để lấy username nếu cần
-                .Include(r => r.UserRoles!)
-                    .ThenInclude(ur => ur.User)
                 .FirstOrDefaultAsync(r => r.RoleID == id);
 
             if (role == null)
                 return NotFound();
 
-            var dto = new RoleWithUsersDto
+            var dto = new RoleDto
             {
                 RoleID = role.RoleID,
-                RoleName = role.RoleName,
-                Usernames = role.UserRoles!
-                    .Select(ur => ur.User!.Username)
-                    .ToList()
+                RoleName = role.RoleName
+                // Nếu có thêm trường trong DTO thì bổ sung ở đây
             };
 
             return Ok(dto);
         }
 
-        // POST: api/Roles
-        // Nhận vào RoleCreateDto, trả về RoleDto
+        /// <summary>
+        /// [POST] Tạo mới một role. Chỉ Admin có quyền tạo.
+        /// </summary>
         [HttpPost]
-        public async Task<ActionResult<RoleDto>> PostRole([FromBody] RoleCreateDto dto)
+        [Authorize(Roles = "Admin")]
+        public async Task<ActionResult<RoleDto>> PostRole([FromBody] RoleDto dto)
         {
-            // Validate
-            if (string.IsNullOrWhiteSpace(dto.RoleName))
-                return BadRequest("RoleName is required.");
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
 
-            // Tránh trùng
+            // Kiểm tra trùng tên role
             if (await _context.Roles.AnyAsync(r => r.RoleName == dto.RoleName))
-                return BadRequest("RoleName already exists.");
+                return Conflict(new { Message = "Role đã tồn tại." });
 
-            // Tạo mới
-            var role = new Role { RoleName = dto.RoleName };
+            var role = new Role
+            {
+                RoleName = dto.RoleName
+                // Nếu có thêm trường thì bổ sung ở đây
+            };
+
             _context.Roles.Add(role);
             await _context.SaveChangesAsync();
 
-            var result = new RoleDto
+            var resultDto = new RoleDto
             {
                 RoleID = role.RoleID,
                 RoleName = role.RoleName
             };
 
-            return CreatedAtAction(nameof(GetRole), new { id = role.RoleID }, result);
+            return CreatedAtAction(nameof(GetRole), new { id = role.RoleID }, resultDto);
         }
 
-        // DELETE: api/Roles/5
+        /// <summary>
+        /// [PUT] Cập nhật thông tin role theo ID. Chỉ Admin có quyền sửa.
+        /// </summary>
+        [HttpPut("{id:int}")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> PutRole(int id, [FromBody] RoleDto dto)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var role = await _context.Roles.FindAsync(id);
+            if (role == null)
+                return NotFound();
+
+            // Kiểm tra trùng tên role
+            if (await _context.Roles.AnyAsync(r => r.RoleName == dto.RoleName && r.RoleID != id))
+                return Conflict(new { Message = "Tên role đã tồn tại." });
+
+            role.RoleName = dto.RoleName;
+            // Nếu có thêm trường thì bổ sung cập nhật ở đây
+
+            await _context.SaveChangesAsync();
+            return NoContent();
+        }
+
+        /// <summary>
+        /// [DELETE] Xóa role theo ID. Chỉ Admin có quyền xóa.
+        /// </summary>
         [HttpDelete("{id:int}")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteRole(int id)
         {
             var role = await _context.Roles.FindAsync(id);
@@ -98,7 +148,6 @@ namespace ShiftManagement.Controllers
 
             _context.Roles.Remove(role);
             await _context.SaveChangesAsync();
-
             return NoContent();
         }
     }

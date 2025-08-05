@@ -7,13 +7,10 @@ namespace ShiftManagement.Models
     {
         [Key]
         public int UserRoleID { get; set; }
-
-        [ForeignKey("Users")]
         public int UserID { get; set; }
-        public User User { get; set; }
-
-        [ForeignKey("Roles")]
         public int RoleID { get; set; }
-        public Role Role { get; set; }
+
+        public User? User { get; set; }
+        public Role? Role { get; set; }
     }
 }
