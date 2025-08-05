@@ -1,9 +1,10 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using ShiftManagement.Data;
-using ShiftManagement.Models;
 using ShiftManagement.DTOs;
+using ShiftManagement.Models;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -23,16 +24,14 @@ namespace ShiftManagement.Controllers
             _config = config;
         }
 
-        // ================================
-        // 1️⃣ Đăng ký tài khoản
-        // ================================
+        // Đăng ký tài khoản
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterDto dto)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            if (await _context.Users.AnyAsync(u => u.Username == dto.Username))
+            if (await _context.Users.AsNoTracking().AnyAsync(u => u.Username == dto.Username))
                 return BadRequest("Username already exists");
 
             var user = new User
@@ -45,8 +44,8 @@ namespace ShiftManagement.Controllers
                 DepartmentID = dto.DepartmentID,
                 StoreID = dto.StoreID,
                 Status = true,
-                CreatedAt = DateTime.Now,
-                UpdatedAt = DateTime.Now
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
             };
 
             _context.Users.Add(user);
@@ -55,16 +54,15 @@ namespace ShiftManagement.Controllers
             return Ok(new { Message = "User registered successfully", UserID = user.UserID });
         }
 
-        // ================================
-        // 2️⃣ Đăng nhập
-        // ================================
+        // Đăng nhập
         [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] LoginDto dto)
+        public async Task<ActionResult> Login([FromBody] LoginDto dto)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
             var user = await _context.Users
+                .AsNoTracking()
                 .Include(u => u.UserRoles)
                 .ThenInclude(ur => ur.Role)
                 .FirstOrDefaultAsync(u => u.Username == dto.Username);
@@ -75,24 +73,51 @@ namespace ShiftManagement.Controllers
             var roles = user.UserRoles.Select(ur => ur.Role.RoleName).ToList();
             var token = GenerateJwtToken(user, roles);
 
+            var authUser = new AuthUserDto
+            {
+                UserID = user.UserID,
+                Username = user.Username,
+                FullName = user.FullName,
+                Email = user.Email,
+                Roles = roles
+            };
+
             return Ok(new
             {
                 Message = "Login successful",
                 Token = token,
-                User = new
-                {
-                    user.UserID,
-                    user.Username,
-                    user.FullName,
-                    user.Email,
-                    Roles = roles
-                }
+                User = authUser
             });
         }
 
-        // ================================
-        // 🔐 Sinh JWT Token
-        // ================================
+        // Ví dụ: API kiểm tra token hợp lệ (chỉ user login mới gọi được)
+        [HttpGet("me")]
+        [Authorize]
+        public async Task<ActionResult<AuthUserDto>> GetMe()
+        {
+            int userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+            var user = await _context.Users
+                .AsNoTracking()
+                .Include(u => u.UserRoles)
+                .ThenInclude(ur => ur.Role)
+                .FirstOrDefaultAsync(u => u.UserID == userId);
+
+            if (user == null)
+                return Unauthorized();
+
+            var roles = user.UserRoles.Select(ur => ur.Role.RoleName).ToList();
+            var authUser = new AuthUserDto
+            {
+                UserID = user.UserID,
+                Username = user.Username,
+                FullName = user.FullName,
+                Email = user.Email,
+                Roles = roles
+            };
+            return Ok(authUser);
+        }
+
+        // Sinh JWT Token
         private string GenerateJwtToken(User user, List<string> roles)
         {
             var claims = new List<Claim>

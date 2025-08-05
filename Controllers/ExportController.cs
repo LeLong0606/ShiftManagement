@@ -1,16 +1,16 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OfficeOpenXml;
 using QuestPDF.Fluent;
-using QuestPDF.Helpers;
-using QuestPDF.Infrastructure;
 using ShiftManagement.Data;
-using ShiftManagement.Models;
+using ShiftManagement.DTOs;
 
 namespace ShiftManagement.Controllers
 {
-    [Route("api/[controller]")]
     [ApiController]
+    [Route("api/[controller]")]
+    [Authorize(Roles = "Admin,Director,TeamLeader")]
     public class ExportController : ControllerBase
     {
         private readonly ShiftManagementContext _context;
@@ -20,9 +20,11 @@ namespace ShiftManagement.Controllers
             _context = context;
         }
 
-        // GET: api/Export/attendance?departmentId=1&period=2025-08&format=excel
         [HttpGet("attendance")]
-        public async Task<IActionResult> ExportAttendance([FromQuery] int departmentId, [FromQuery] string period, [FromQuery] string format = "excel")
+        public async Task<IActionResult> ExportAttendance(
+            [FromQuery] int departmentId,
+            [FromQuery] string period,
+            [FromQuery] string format = "excel")
         {
             if (!DateTime.TryParse(period + "-01", out DateTime monthStart))
                 return BadRequest("Invalid period format. Use yyyy-MM");
@@ -30,17 +32,24 @@ namespace ShiftManagement.Controllers
             var monthEnd = monthStart.AddMonths(1);
 
             var data = await _context.ShiftSchedules
-                .Include(s => s.Employee)
-                .Include(s => s.ShiftScheduleDetails)
                 .Where(s => s.DepartmentID == departmentId && s.Date >= monthStart && s.Date < monthEnd)
-                .GroupBy(s => new { s.Employee.UserID, s.Employee.FullName })
-                .Select(g => new
+                .Select(s => new
+                {
+                    s.Employee.UserID,
+                    s.Employee.FullName,
+                    Details = s.ShiftScheduleDetails.Select(d => d.WorkUnit)
+                })
+                .AsNoTracking()
+                .ToListAsync();
+
+            var dtoData = data
+                .GroupBy(s => new { s.UserID, s.FullName })
+                .Select(g => new AttendanceExportDto
                 {
                     EmployeeID = g.Key.UserID,
                     Name = g.Key.FullName,
-                    TotalWorkUnit = g.SelectMany(s => s.ShiftScheduleDetails).Sum(d => d.WorkUnit)
-                })
-                .ToListAsync();
+                    TotalWorkUnit = g.SelectMany(x => x.Details).Sum()
+                }).ToList();
 
             if (format.ToLower() == "excel")
             {
@@ -54,7 +63,7 @@ namespace ShiftManagement.Controllers
                     sheet.Cells[1, 3].Value = "Total Work Units";
 
                     int row = 2;
-                    foreach (var item in data)
+                    foreach (var item in dtoData)
                     {
                         sheet.Cells[row, 1].Value = item.EmployeeID;
                         sheet.Cells[row, 2].Value = item.Name;
@@ -69,7 +78,7 @@ namespace ShiftManagement.Controllers
             }
             else if (format.ToLower() == "pdf")
             {
-                var pdf = Document.Create(container =>
+                var pdf = QuestPDF.Fluent.Document.Create(container =>
                 {
                     container.Page(page =>
                     {
@@ -91,7 +100,7 @@ namespace ShiftManagement.Controllers
                                 h.Cell().Text("Total Units").Bold();
                             });
 
-                            foreach (var item in data)
+                            foreach (var item in dtoData)
                             {
                                 table.Cell().Text(item.EmployeeID.ToString());
                                 table.Cell().Text(item.Name);

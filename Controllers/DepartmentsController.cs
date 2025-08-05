@@ -1,12 +1,14 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ShiftManagement.Data;
-using ShiftManagement.Models;
+using ShiftManagement.DTOs;
 
 namespace ShiftManagement.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize(Roles = "Admin,Director,TeamLeader")]
     public class DepartmentsController : ControllerBase
     {
         private readonly ShiftManagementContext _context;
@@ -17,43 +19,82 @@ namespace ShiftManagement.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Department>>> GetDepartments()
+        public async Task<ActionResult<IEnumerable<DepartmentDto>>> GetDepartments()
         {
-            return await _context.Departments
+            var departments = await _context.Departments
+                .AsNoTracking()
                 .Include(d => d.Store)
+                .Select(d => new DepartmentDto
+                {
+                    DepartmentID = d.DepartmentID,
+                    DepartmentName = d.DepartmentName,
+                    StoreID = d.StoreID,
+                    StoreName = d.Store.StoreName,
+                    ManagerID = d.ManagerID
+                })
                 .ToListAsync();
+
+            return Ok(departments);
         }
 
         [HttpGet("{id}")]
-        public async Task<ActionResult<Department>> GetDepartment(int id)
+        public async Task<ActionResult<DepartmentDto>> GetDepartment(int id)
         {
             var dept = await _context.Departments
+                .AsNoTracking()
                 .Include(d => d.Store)
-                .FirstOrDefaultAsync(d => d.DepartmentID == id);
+                .Where(d => d.DepartmentID == id)
+                .Select(d => new DepartmentDto
+                {
+                    DepartmentID = d.DepartmentID,
+                    DepartmentName = d.DepartmentName,
+                    StoreID = d.StoreID,
+                    StoreName = d.Store.StoreName,
+                    ManagerID = d.ManagerID
+                })
+                .FirstOrDefaultAsync();
 
             if (dept == null) return NotFound();
-            return dept;
+            return Ok(dept);
         }
 
         [HttpPost]
-        public async Task<ActionResult<Department>> PostDepartment(Department department)
+        [Authorize(Roles = "Admin,Director")]
+        public async Task<ActionResult<DepartmentDto>> PostDepartment(DepartmentDto dto)
         {
-            _context.Departments.Add(department);
+            var dept = new Models.Department
+            {
+                DepartmentName = dto.DepartmentName,
+                StoreID = dto.StoreID,
+                ManagerID = dto.ManagerID
+            };
+            _context.Departments.Add(dept);
             await _context.SaveChangesAsync();
-            return CreatedAtAction(nameof(GetDepartment), new { id = department.DepartmentID }, department);
+
+            dto.DepartmentID = dept.DepartmentID;
+            // Optionally fetch StoreName from DB if you want to always return full info
+
+            return CreatedAtAction(nameof(GetDepartment), new { id = dept.DepartmentID }, dto);
         }
 
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutDepartment(int id, Department department)
+        [Authorize(Roles = "Admin,Director")]
+        public async Task<IActionResult> PutDepartment(int id, DepartmentDto dto)
         {
-            if (id != department.DepartmentID) return BadRequest();
+            if (id != dto.DepartmentID) return BadRequest();
 
-            _context.Entry(department).State = EntityState.Modified;
+            var dept = await _context.Departments.FindAsync(id);
+            if (dept == null) return NotFound();
+
+            dept.DepartmentName = dto.DepartmentName;
+            dept.StoreID = dto.StoreID;
+            dept.ManagerID = dto.ManagerID;
             await _context.SaveChangesAsync();
             return NoContent();
         }
 
         [HttpDelete("{id}")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteDepartment(int id)
         {
             var dept = await _context.Departments.FindAsync(id);
