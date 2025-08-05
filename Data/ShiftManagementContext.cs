@@ -27,16 +27,30 @@ namespace ShiftManagement.Data
         {
             base.OnModelCreating(modelBuilder);
 
-            // UserRole: Unique constraint UserID + RoleID
+            // ⚙️ Map đúng tên bảng trong database:
+            modelBuilder.Entity<Role>().ToTable("Roles");
+            modelBuilder.Entity<Store>().ToTable("Stores");
+            modelBuilder.Entity<Department>().ToTable("Departments");
+            modelBuilder.Entity<User>().ToTable("Users"); 
+            modelBuilder.Entity<UserRole>().ToTable("UserRoles");
+            modelBuilder.Entity<ShiftCode>().ToTable("ShiftCodes");
+            modelBuilder.Entity<Holiday>().ToTable("Holidays");
+            modelBuilder.Entity<ShiftSchedule>().ToTable("ShiftSchedule");
+            modelBuilder.Entity<ShiftScheduleDetail>().ToTable("ShiftScheduleDetail");
+            modelBuilder.Entity<ShiftHistory>().ToTable("ShiftHistories");
+            modelBuilder.Entity<Log>().ToTable("Logs");
+            modelBuilder.Entity<WorkUnitRule>().ToTable("WorkUnitRules");
+
+            // ▶️ Unique constraints
             modelBuilder.Entity<UserRole>()
                 .HasIndex(ur => new { ur.UserID, ur.RoleID })
                 .IsUnique();
 
-            // ShiftSchedule: Unique constraint EmployeeID + Date
             modelBuilder.Entity<ShiftSchedule>()
                 .HasIndex(s => new { s.EmployeeID, s.Date })
                 .IsUnique();
 
+            // ▶️ Quan hệ
             // ShiftSchedule - CreatedBy (User)
             modelBuilder.Entity<ShiftSchedule>()
                 .HasOne(s => s.CreatedUser)
@@ -51,26 +65,24 @@ namespace ShiftManagement.Data
                 .HasForeignKey(s => s.EmployeeID)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // UserRole Relations
+            // UserRole
             modelBuilder.Entity<UserRole>()
                 .HasOne(ur => ur.User)
                 .WithMany(u => u.UserRoles)
                 .HasForeignKey(ur => ur.UserID)
                 .OnDelete(DeleteBehavior.Cascade);
-
             modelBuilder.Entity<UserRole>()
                 .HasOne(ur => ur.Role)
                 .WithMany(r => r.UserRoles)
                 .HasForeignKey(ur => ur.RoleID)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // ShiftScheduleDetail Relations
+            // ShiftScheduleDetail
             modelBuilder.Entity<ShiftScheduleDetail>()
                 .HasOne(sd => sd.Schedule)
                 .WithMany(s => s.ShiftScheduleDetails)
                 .HasForeignKey(sd => sd.ScheduleID)
                 .OnDelete(DeleteBehavior.Cascade);
-
             modelBuilder.Entity<ShiftScheduleDetail>()
                 .HasOne(sd => sd.ShiftCode)
                 .WithMany(sc => sc.ShiftScheduleDetails)

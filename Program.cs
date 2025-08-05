@@ -19,7 +19,19 @@ builder.Services.AddDbContext<ShiftManagementContext>(options =>
 builder.Services.AddMemoryCache();
 
 // ======================
-// 3️⃣ Cấu hình Controllers & JSON
+// 3️⃣ Cấu hình CORS
+// ======================
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowBlazorClient",
+        policy => policy.WithOrigins("https://localhost:7250")
+                        .AllowAnyMethod()
+                        .AllowAnyHeader()
+                        .AllowCredentials());
+});
+
+// ======================
+// 4️⃣ Cấu hình Controllers & JSON
 // ======================
 builder.Services.AddControllers()
     .AddJsonOptions(x =>
@@ -27,7 +39,7 @@ builder.Services.AddControllers()
     );
 
 // ======================
-// 4️⃣ Cấu hình Authentication (JWT)
+// 5️⃣ Cấu hình Authentication (JWT)
 // ======================
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -48,7 +60,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 // ======================
-// 5️⃣ Swagger + JWT Support
+// 6️⃣ Swagger + JWT Support
 // ======================
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -89,7 +101,7 @@ builder.Services.AddSwaggerGen(c =>
 var app = builder.Build();
 
 // ======================
-// 6️⃣ Pipeline Middleware
+// 7️⃣ Pipeline Middleware
 // ======================
 if (app.Environment.IsDevelopment())
 {
@@ -98,6 +110,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Bật CORS trước Authentication
+app.UseCors("AllowBlazorClient");
 
 app.UseAuthentication();
 app.UseAuthorization();

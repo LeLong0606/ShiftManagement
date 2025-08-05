@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ShiftManagement.Data;
-using ShiftManagement.Models;
+using ShiftManagement.DTOs;
 
 namespace ShiftManagement.Controllers
 {
@@ -16,46 +16,116 @@ namespace ShiftManagement.Controllers
             _context = context;
         }
 
+        // GET: api/Stores
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Store>>> GetStores()
+        public async Task<ActionResult<IEnumerable<StoreDto>>> GetStores()
         {
-            return await _context.Stores.Include(s => s.Departments).ToListAsync();
+            var stores = await _context.Stores
+                .AsNoTracking()
+                .Select(s => new StoreDto
+                {
+                    StoreID = s.StoreID,
+                    StoreName = s.StoreName,
+                    Address = s.Address,
+                    Phone = s.Phone,
+                    Departments = s.Departments
+                        .Select(d => new DepartmentDto
+                        {
+                            DepartmentID = d.DepartmentID,
+                            DepartmentName = d.DepartmentName
+                        })
+                        .ToList()
+                })
+                .ToListAsync();
+
+            return Ok(stores);
         }
 
-        [HttpGet("{id}")]
-        public async Task<ActionResult<Store>> GetStore(int id)
+        // GET: api/Stores/5
+        [HttpGet("{id:int}")]
+        public async Task<ActionResult<StoreDto>> GetStore(int id)
         {
             var store = await _context.Stores
-                .Include(s => s.Departments)
-                .FirstOrDefaultAsync(s => s.StoreID == id);
+                .AsNoTracking()
+                .Where(s => s.StoreID == id)
+                .Select(s => new StoreDto
+                {
+                    StoreID = s.StoreID,
+                    StoreName = s.StoreName,
+                    Address = s.Address,
+                    Phone = s.Phone,
+                    Departments = s.Departments
+                        .Select(d => new DepartmentDto
+                        {
+                            DepartmentID = d.DepartmentID,
+                            DepartmentName = d.DepartmentName
+                        })
+                        .ToList()
+                })
+                .FirstOrDefaultAsync();
 
-            if (store == null) return NotFound();
-            return store;
+            if (store == null)
+                return NotFound();
+
+            return Ok(store);
         }
 
+        // POST: api/Stores
         [HttpPost]
-        public async Task<ActionResult<Store>> PostStore(Store store)
+        public async Task<ActionResult<StoreDto>> PostStore([FromBody] StoreCreateDto dto)
         {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var store = new Models.Store
+            {
+                StoreName = dto.StoreName,
+                Address = dto.Address,
+                Phone = dto.Phone
+            };
+
             _context.Stores.Add(store);
             await _context.SaveChangesAsync();
-            return CreatedAtAction(nameof(GetStore), new { id = store.StoreID }, store);
+
+            // map lại thành DTO để trả về
+            var resultDto = new StoreDto
+            {
+                StoreID = store.StoreID,
+                StoreName = store.StoreName,
+                Address = store.Address,
+                Phone = store.Phone,
+                Departments = new()
+            };
+
+            return CreatedAtAction(nameof(GetStore), new { id = store.StoreID }, resultDto);
         }
 
-        [HttpPut("{id}")]
-        public async Task<IActionResult> PutStore(int id, Store store)
+        // PUT: api/Stores/5
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> PutStore(int id, [FromBody] StoreUpdateDto dto)
         {
-            if (id != store.StoreID) return BadRequest();
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
 
-            _context.Entry(store).State = EntityState.Modified;
+            var store = await _context.Stores.FindAsync(id);
+            if (store == null)
+                return NotFound();
+
+            store.StoreName = dto.StoreName;
+            store.Address = dto.Address;
+            store.Phone = dto.Phone;
+
             await _context.SaveChangesAsync();
             return NoContent();
         }
 
-        [HttpDelete("{id}")]
+        // DELETE: api/Stores/5
+        [HttpDelete("{id:int}")]
         public async Task<IActionResult> DeleteStore(int id)
         {
             var store = await _context.Stores.FindAsync(id);
-            if (store == null) return NotFound();
+            if (store == null)
+                return NotFound();
 
             _context.Stores.Remove(store);
             await _context.SaveChangesAsync();

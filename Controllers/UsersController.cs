@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
 using ShiftManagement.Data;
+using ShiftManagement.DTOs;
 using ShiftManagement.Models;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -18,16 +19,7 @@ namespace ShiftManagement.Controllers
         private readonly IMemoryCache _cache;
         private readonly IConfiguration _config;
 
-        public UsersController(ShiftManagementContext context, IMemoryCache cache, IConfiguration config)
-        {
-            _context = context;
-            _cache = cache;
-            _config = config;
-        }
-
-        // ========================
-        // 1️⃣ COMPILED QUERY
-        // ========================
+        // compiled query cho UserDto
         private static readonly Func<ShiftManagementContext, string?, int, int, IEnumerable<UserDto>>
             _compiledQuery = EF.CompileQuery(
                 (ShiftManagementContext ctx, string? search, int skip, int take) =>
@@ -48,45 +40,58 @@ namespace ShiftManagement.Controllers
                             FullName = u.FullName,
                             Email = u.Email,
                             PhoneNumber = u.PhoneNumber,
+                            DepartmentID = u.DepartmentID,
                             DepartmentName = u.Department != null ? u.Department.DepartmentName : null,
+                            StoreID = u.StoreID,
                             StoreName = u.Store != null ? u.Store.StoreName : null,
-                            Status = u.Status
+                            Status = u.Status,
+                            CreatedAt = u.CreatedAt,
+                            UpdatedAt = u.UpdatedAt
                         })
             );
 
-        // ========================
-        // 2️⃣ GET LIST
-        // ========================
+        public UsersController(
+            ShiftManagementContext context,
+            IMemoryCache cache,
+            IConfiguration config)
+        {
+            _context = context;
+            _cache = cache;
+            _config = config;
+        }
+
+        // GET: api/Users
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<UserDto>>> GetUsers(
+        public ActionResult GetUsers(
             [FromQuery] string? search = "",
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 50)
         {
             string cacheKey = $"Users_{search}_{page}_{pageSize}";
 
-            if (_cache.TryGetValue(cacheKey, out List<UserDto> cachedData))
-                return Ok(new { Cached = true, Data = cachedData });
+            if (_cache.TryGetValue(cacheKey, out List<UserDto> cached))
+                return Ok(new { Cached = true, Data = cached });
 
-            List<UserDto> users = await Task.FromResult(
-                _compiledQuery(_context, search ?? "", (page - 1) * pageSize, pageSize).ToList()
-            );
+            var result = _compiledQuery(
+                _context,
+                search,
+                (page - 1) * pageSize,
+                pageSize)
+              .ToList();
 
-            _cache.Set(cacheKey, users, TimeSpan.FromMinutes(2));
-            return Ok(new { Cached = false, Data = users });
+            _cache.Set(cacheKey, result, TimeSpan.FromMinutes(2));
+            return Ok(new { Cached = false, Data = result });
         }
 
-        // ========================
-        // 3️⃣ GET BY ID
-        // ========================
-        [HttpGet("{id}")]
+        // GET: api/Users/{id}
+        [HttpGet("{id:int}")]
         public async Task<ActionResult<UserDto>> GetUser(int id)
         {
             string cacheKey = $"User_{id}";
-            if (_cache.TryGetValue(cacheKey, out UserDto cachedUser))
-                return Ok(cachedUser);
+            if (_cache.TryGetValue(cacheKey, out UserDto dto))
+                return Ok(dto);
 
-            var user = await _context.Users
+            dto = await _context.Users
                 .AsNoTracking()
                 .Where(u => u.UserID == id)
                 .Select(u => new UserDto
@@ -96,64 +101,80 @@ namespace ShiftManagement.Controllers
                     FullName = u.FullName,
                     Email = u.Email,
                     PhoneNumber = u.PhoneNumber,
+                    DepartmentID = u.DepartmentID,
                     DepartmentName = u.Department != null ? u.Department.DepartmentName : null,
+                    StoreID = u.StoreID,
                     StoreName = u.Store != null ? u.Store.StoreName : null,
-                    Status = u.Status
+                    Status = u.Status,
+                    CreatedAt = u.CreatedAt,
+                    UpdatedAt = u.UpdatedAt
                 })
                 .FirstOrDefaultAsync();
 
-            if (user == null)
-                return NotFound();
+            if (dto == null) return NotFound();
 
-            _cache.Set(cacheKey, user, TimeSpan.FromMinutes(5));
-            return Ok(user);
+            _cache.Set(cacheKey, dto, TimeSpan.FromMinutes(5));
+            return Ok(dto);
         }
 
-        // ========================
-        // 4️⃣ CREATE
-        // ========================
+        // POST: api/Users
         [HttpPost]
-        public async Task<ActionResult<User>> PostUser([FromBody] User user)
+        public async Task<ActionResult> PostUser([FromBody] UserCreateDto input)
         {
-            if (await _context.Users.AnyAsync(u => u.Username == user.Username))
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            if (await _context.Users.AnyAsync(u => u.Username == input.Username))
                 return BadRequest("Username already exists.");
 
-            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(user.PasswordHash);
-            _context.Users.Add(user);
+            var entity = new User
+            {
+                Username = input.Username,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(input.Password),
+                FullName = input.FullName,
+                Email = input.Email,
+                PhoneNumber = input.PhoneNumber,
+                DepartmentID = input.DepartmentID,
+                StoreID = input.StoreID,
+                Status = true,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            _context.Users.Add(entity);
             await _context.SaveChangesAsync();
 
-            _cache.Remove("Users_*"); // clear cache list
-            return CreatedAtAction(nameof(GetUser), new { id = user.UserID }, user);
+            _cache.Remove($"Users_*");
+            return CreatedAtAction(nameof(GetUser),
+                new { id = entity.UserID },
+                new { entity.UserID, entity.Username });
         }
 
-        // ========================
-        // 5️⃣ UPDATE
-        // ========================
-        [HttpPut("{id}")]
-        public async Task<IActionResult> PutUser(int id, [FromBody] User user)
+        // PUT: api/Users/{id}
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> PutUser(
+            int id,
+            [FromBody] UserUpdateDto input)
         {
-            if (id != user.UserID) return BadRequest();
+            if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            var existing = await _context.Users.FindAsync(id);
-            if (existing == null) return NotFound();
+            var user = await _context.Users.FindAsync(id);
+            if (user == null) return NotFound();
 
-            existing.FullName = user.FullName;
-            existing.Email = user.Email;
-            existing.PhoneNumber = user.PhoneNumber;
-            existing.DepartmentID = user.DepartmentID;
-            existing.StoreID = user.StoreID;
-            existing.Status = user.Status;
-            existing.UpdatedAt = DateTime.Now;
+            user.FullName = input.FullName;
+            user.Email = input.Email;
+            user.PhoneNumber = input.PhoneNumber;
+            user.DepartmentID = input.DepartmentID;
+            user.StoreID = input.StoreID;
+            user.Status = input.Status;
+            user.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
             _cache.Remove($"User_{id}");
             return NoContent();
         }
 
-        // ========================
-        // 6️⃣ DELETE
-        // ========================
-        [HttpDelete("{id}")]
+        // DELETE: api/Users/{id}
+        [HttpDelete("{id:int}")]
         public async Task<IActionResult> DeleteUser(int id)
         {
             var user = await _context.Users.FindAsync(id);
@@ -161,17 +182,18 @@ namespace ShiftManagement.Controllers
 
             _context.Users.Remove(user);
             await _context.SaveChangesAsync();
-
             _cache.Remove($"User_{id}");
             return NoContent();
         }
 
-        // ========================
-        // 7️⃣ CHANGE PASSWORD
-        // ========================
-        [HttpPatch("{id}/changepassword")]
-        public async Task<IActionResult> ChangePassword(int id, [FromBody] ChangePasswordDto dto)
+        // PATCH: api/Users/{id}/changepassword
+        [HttpPatch("{id:int}/changepassword")]
+        public async Task<IActionResult> ChangePassword(
+            int id,
+            [FromBody] ChangePasswordDto dto)
         {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
             var user = await _context.Users.FindAsync(id);
             if (user == null) return NotFound();
 
@@ -179,32 +201,33 @@ namespace ShiftManagement.Controllers
                 return BadRequest("Old password incorrect.");
 
             user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+            user.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
             return NoContent();
         }
 
-        // ========================
-        // 8️⃣ LOCK/UNLOCK
-        // ========================
-        [HttpPatch("{id}/lock")]
+        // PATCH: api/Users/{id}/lock
+        [HttpPatch("{id:int}/lock")]
         public async Task<IActionResult> ToggleLock(int id)
         {
             var user = await _context.Users.FindAsync(id);
             if (user == null) return NotFound();
 
             user.Status = !user.Status;
+            user.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
             return Ok(new { user.UserID, user.Status });
         }
 
-        // ========================
-        // 9️⃣ ASSIGN ROLE
-        // ========================
-        [HttpPost("{id}/roles")]
+        // POST: api/Users/{id}/roles
+        [HttpPost("{id:int}/roles")]
         public async Task<IActionResult> AddRole(int id, [FromBody] int roleId)
         {
-            if (!await _context.Users.AnyAsync(u => u.UserID == id)) return NotFound("User not found");
-            if (!await _context.Roles.AnyAsync(r => r.RoleID == roleId)) return NotFound("Role not found");
+            if (!await _context.Users.AnyAsync(u => u.UserID == id))
+                return NotFound("User not found.");
+
+            if (!await _context.Roles.AnyAsync(r => r.RoleID == roleId))
+                return NotFound("Role not found.");
 
             if (await _context.UserRoles.AnyAsync(ur => ur.UserID == id && ur.RoleID == roleId))
                 return BadRequest("Role already assigned.");
@@ -214,24 +237,21 @@ namespace ShiftManagement.Controllers
             return Ok("Role added.");
         }
 
-        // ========================
-        // 🔟 REMOVE ROLE
-        // ========================
-        [HttpDelete("{id}/roles/{roleId}")]
+        // DELETE: api/Users/{id}/roles/{roleId}
+        [HttpDelete("{id:int}/roles/{roleId:int}")]
         public async Task<IActionResult> RemoveRole(int id, int roleId)
         {
-            var userRole = await _context.UserRoles.FirstOrDefaultAsync(ur => ur.UserID == id && ur.RoleID == roleId);
-            if (userRole == null) return NotFound();
+            var ur = await _context.UserRoles
+                .FirstOrDefaultAsync(x => x.UserID == id && x.RoleID == roleId);
+            if (ur == null) return NotFound();
 
-            _context.UserRoles.Remove(userRole);
+            _context.UserRoles.Remove(ur);
             await _context.SaveChangesAsync();
             return Ok("Role removed.");
         }
 
-        // ========================
-        // 11️⃣ GET ROLES
-        // ========================
-        [HttpGet("{id}/roles")]
+        // GET: api/Users/{id}/roles
+        [HttpGet("{id:int}/roles")]
         public async Task<IActionResult> GetUserRoles(int id)
         {
             var roles = await _context.UserRoles
@@ -243,61 +263,40 @@ namespace ShiftManagement.Controllers
             return Ok(roles);
         }
 
-        // ========================
-        // 12️⃣ LOGIN -> JWT
-        // ========================
+        // POST: api/Users/login
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
         {
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == dto.Username);
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            var user = await _context.Users
+                .Include(u => u.UserRoles)
+                .ThenInclude(ur => ur.Role)
+                .FirstOrDefaultAsync(u => u.Username == dto.Username);
+
             if (user == null || !BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash))
                 return Unauthorized("Invalid username or password.");
 
-            var claims = new[]
+            var claims = new List<Claim>
             {
                 new Claim(ClaimTypes.NameIdentifier, user.UserID.ToString()),
                 new Claim(ClaimTypes.Name, user.Username)
             };
+            claims.AddRange(user.UserRoles.Select(ur =>
+                new Claim(ClaimTypes.Role, ur.Role.RoleName)));
 
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]!));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             var token = new JwtSecurityToken(
                 issuer: _config["Jwt:Issuer"],
                 audience: _config["Jwt:Audience"],
                 claims: claims,
-                expires: DateTime.Now.AddHours(2),
+                expires: DateTime.UtcNow.AddHours(8),
                 signingCredentials: creds
             );
 
             return Ok(new { Token = new JwtSecurityTokenHandler().WriteToken(token) });
         }
-    }
-
-    // ==========================
-    // DTOs
-    // ==========================
-    public class UserDto
-    {
-        public int UserID { get; set; }
-        public string Username { get; set; }
-        public string FullName { get; set; }
-        public string Email { get; set; }
-        public string PhoneNumber { get; set; }
-        public string? DepartmentName { get; set; }
-        public string? StoreName { get; set; }
-        public bool Status { get; set; }
-    }
-
-    public class ChangePasswordDto
-    {
-        public string OldPassword { get; set; }
-        public string NewPassword { get; set; }
-    }
-
-    public class LoginDto
-    {
-        public string Username { get; set; }
-        public string Password { get; set; }
     }
 }

@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ShiftManagement.Data;
-using ShiftManagement.Models;
+using ShiftManagement.DTOs;
 
 namespace ShiftManagement.Controllers
 {
@@ -18,27 +18,44 @@ namespace ShiftManagement.Controllers
 
         // POST: api/UserRoles
         [HttpPost]
-        public async Task<IActionResult> AssignRole([FromBody] UserRole userRole)
+        public async Task<IActionResult> AssignRole([FromBody] UserRoleDto dto)
         {
-            var exists = await _context.UserRoles
-                .AnyAsync(ur => ur.UserID == userRole.UserID && ur.RoleID == userRole.RoleID);
+            // kiểm tra user + role tồn tại
+            if (!await _context.Users.AnyAsync(u => u.UserID == dto.UserID))
+                return NotFound($"User {dto.UserID} not found");
+            if (!await _context.Roles.AnyAsync(r => r.RoleID == dto.RoleID))
+                return NotFound($"Role {dto.RoleID} not found");
 
+            // kiểm tra đã gán chưa
+            bool exists = await _context.UserRoles
+                .AnyAsync(ur => ur.UserID == dto.UserID && ur.RoleID == dto.RoleID);
             if (exists)
                 return BadRequest("User already has this role");
 
-            _context.UserRoles.Add(userRole);
+            // gán
+            _context.UserRoles.Add(new Models.UserRole
+            {
+                UserID = dto.UserID,
+                RoleID = dto.RoleID
+            });
             await _context.SaveChangesAsync();
             return Ok("Role assigned successfully");
         }
 
         // GET: api/UserRoles/user/5
-        [HttpGet("user/{userId}")]
+        [HttpGet("user/{userId:int}")]
         public async Task<IActionResult> GetUserRoles(int userId)
         {
+            if (!await _context.Users.AnyAsync(u => u.UserID == userId))
+                return NotFound($"User {userId} not found");
+
             var roles = await _context.UserRoles
-                .Include(ur => ur.Role)
                 .Where(ur => ur.UserID == userId)
-                .Select(ur => ur.Role.RoleName)
+                .Include(ur => ur.Role)
+                .Select(ur => new {
+                    ur.RoleID,
+                    ur.Role.RoleName
+                })
                 .ToListAsync();
 
             return Ok(roles);
@@ -46,13 +63,12 @@ namespace ShiftManagement.Controllers
 
         // DELETE: api/UserRoles
         [HttpDelete]
-        public async Task<IActionResult> RemoveRole([FromBody] UserRole userRole)
+        public async Task<IActionResult> RemoveRole([FromBody] UserRoleDto dto)
         {
             var entry = await _context.UserRoles
-                .FirstOrDefaultAsync(ur => ur.UserID == userRole.UserID && ur.RoleID == userRole.RoleID);
-
+                .FirstOrDefaultAsync(ur => ur.UserID == dto.UserID && ur.RoleID == dto.RoleID);
             if (entry == null)
-                return NotFound();
+                return NotFound("This role assignment does not exist");
 
             _context.UserRoles.Remove(entry);
             await _context.SaveChangesAsync();
