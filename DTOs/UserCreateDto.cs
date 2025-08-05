@@ -2,24 +2,12 @@
 
 namespace ShiftManagement.DTOs
 {
-    public class UserCreateDto
+    /// <summary>
+    /// DTO nhận thông tin khi gán role cho user (tạo mới UserRole)
+    /// </summary>
+    public class UserRoleCreateDto
     {
-        [Required, MaxLength(50)]
-        public string Username { get; set; }
-
-        [Required, MinLength(6)]
-        public string Password { get; set; }
-
-        [MaxLength(100)]
-        public string FullName { get; set; }
-
-        [EmailAddress]
-        public string Email { get; set; }
-
-        [MaxLength(20)]
-        public string PhoneNumber { get; set; }
-
-        public int? DepartmentID { get; set; }
-        public int? StoreID { get; set; }
+        public int UserID { get; set; }
+        public int RoleID { get; set; }
     }
 }
