@@ -2,7 +2,8 @@
 namespace ShiftManagement.DTOs
 {
     /// <summary>
-    /// DTO trả về thông tin user-role cho client
+    /// DTO dùng trả về thông tin user-role (mối quan hệ user và role).
+    /// Tái sử dụng cho các API liên quan phân quyền.
     /// </summary>
     public class UserRoleDto
     {

@@ -3,10 +3,16 @@
 namespace ShiftManagement.DTOs
 {
     /// <summary>
-    /// DTO cập nhật role của user (nâng cấp/sửa role)
+    /// DTO nhận thông tin cập nhật người dùng.
+    /// Dùng cho API cập nhật user.
     /// </summary>
-    public class UserRoleUpdateDto
+    public class UserUpdateDto
     {
-        public int NewRoleID { get; set; }
+        public string FullName { get; set; } = string.Empty;
+        public string? Email { get; set; }
+        public string? PhoneNumber { get; set; }
+        public int? DepartmentID { get; set; }
+        public int? StoreID { get; set; }
+        public bool Status { get; set; }
     }
 }
