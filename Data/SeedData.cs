@@ -1,10 +1,23 @@
 ﻿using ShiftManagement.Models;
 using Microsoft.EntityFrameworkCore;
+using System.Text;
+using System.Collections.Generic;
+using System;
+using System.Linq;
+
+// THÊM DÒNG NÀY ĐỂ DÙNG BCrypt
+using BCrypt.Net;
 
 namespace ShiftManagement.Data
 {
     public static class SeedData
     {
+        // Hash password bằng BCrypt để tương thích khi login
+        private static string HashPassword(string password)
+        {
+            return BCrypt.Net.BCrypt.HashPassword(password);
+        }
+
         public static void Initialize(ShiftManagementContext context)
         {
             // Roles
@@ -33,63 +46,151 @@ namespace ShiftManagement.Data
                 context.SaveChanges();
             }
 
-            // Departments
+            // Departments: mỗi store đều có đủ các phòng ban
             if (!context.Departments.Any())
             {
-                var store1Id = context.Stores.First(s => s.StoreName.Contains("Hà Nội")).StoreID;
-                var store2Id = context.Stores.First(s => s.StoreName.Contains("TP.HCM")).StoreID;
-
-                var departments = new[]
+                var departmentNames = new[]
                 {
-                    new Department { DepartmentName = "TPTS - Thực phẩm tươi sống", StoreID = store1Id },
-                    new Department { DepartmentName = "TPCN - Thực phẩm công nghệ", StoreID = store1Id },
-                    new Department { DepartmentName = "PTP - Phi thực phẩm", StoreID = store1Id },
-                    new Department { DepartmentName = "MKT - Marketing", StoreID = store2Id },
-                    new Department { DepartmentName = "BPKHO - Bộ phận kho", StoreID = store2Id },
-                    new Department { DepartmentName = "VT - Tổ vi tính", StoreID = store2Id }
+                    "TPTS - Thực phẩm tươi sống",
+                    "TPCN - Thực phẩm công nghệ",
+                    "PTP - Phi thực phẩm",
+                    "MKT - Marketing",
+                    "BPKHO - Bộ phận kho",
+                    "VT - Tổ vi tính"
                 };
-                context.Departments.AddRange(departments);
+                var stores = context.Stores.ToList();
+                var allDepartments = new List<Department>();
+                foreach (var store in stores)
+                {
+                    foreach (var deptName in departmentNames)
+                    {
+                        allDepartments.Add(new Department
+                        {
+                            DepartmentName = deptName,
+                            StoreID = store.StoreID
+                        });
+                    }
+                }
+                context.Departments.AddRange(allDepartments);
                 context.SaveChanges();
             }
 
-            // Users
+            // Users & UserRoles: mỗi quyền đều đủ tài khoản cho mỗi store, passhash = BCrypt(cm565)
             if (!context.Users.Any())
             {
-                var store1Id = context.Stores.First(s => s.StoreName.Contains("Hà Nội")).StoreID;
-                var store2Id = context.Stores.First(s => s.StoreName.Contains("TP.HCM")).StoreID;
-                var dep1Id = context.Departments.First(d => d.DepartmentName.StartsWith("TPTS")).DepartmentID;
-                var dep4Id = context.Departments.First(d => d.DepartmentName.StartsWith("MKT")).DepartmentID;
-                var dep2Id = context.Departments.First(d => d.DepartmentName.StartsWith("TPCN")).DepartmentID;
-                var dep5Id = context.Departments.First(d => d.DepartmentName.StartsWith("BPKHO")).DepartmentID;
+                var stores = context.Stores.ToList();
+                var roles = context.Roles.ToList();
+                var departments = context.Departments.ToList();
+                var passwordHash = HashPassword("cm565");
+                var users = new List<User>();
+                var userRoles = new List<UserRole>();
+                int userIndex = 1;
 
-                var users = new[]
+                foreach (var store in stores)
                 {
-                    new User { Username = "admin", PasswordHash = "123456hash", FullName = "Quản trị viên", Email = "admin@supermarket.com", PhoneNumber = "0901111111", DepartmentID = null, StoreID = store1Id, Status = true },
-                    new User { Username = "director", PasswordHash = "123456hash", FullName = "Giám đốc", Email = "director@supermarket.com", PhoneNumber = "0902222222", DepartmentID = null, StoreID = store1Id, Status = true },
-                    new User { Username = "leader1", PasswordHash = "123456hash", FullName = "Nguyễn Văn A", Email = "leader1@supermarket.com", PhoneNumber = "0903333333", DepartmentID = dep1Id, StoreID = store1Id, Status = true },
-                    new User { Username = "leader2", PasswordHash = "123456hash", FullName = "Trần Thị B", Email = "leader2@supermarket.com", PhoneNumber = "0904444444", DepartmentID = dep4Id, StoreID = store2Id, Status = true },
-                    new User { Username = "employee1", PasswordHash = "123456hash", FullName = "Lê Văn C", Email = "employee1@supermarket.com", PhoneNumber = "0905555555", DepartmentID = dep1Id, StoreID = store1Id, Status = true },
-                    new User { Username = "employee2", PasswordHash = "123456hash", FullName = "Hoàng Thị D", Email = "employee2@supermarket.com", PhoneNumber = "0906666666", DepartmentID = dep2Id, StoreID = store1Id, Status = true },
-                    new User { Username = "employee3", PasswordHash = "123456hash", FullName = "Phạm Văn E", Email = "employee3@supermarket.com", PhoneNumber = "0907777777", DepartmentID = dep5Id, StoreID = store2Id, Status = true }
-                };
+                    // Lấy các phòng ban thuộc store
+                    var storeDepartments = departments.Where(d => d.StoreID == store.StoreID).ToList();
+
+                    // Admin
+                    var admin = new User
+                    {
+                        Username = $"admin_{store.StoreID}",
+                        PasswordHash = passwordHash,
+                        FullName = $"Quản trị viên {store.StoreName}",
+                        Email = $"admin{store.StoreID}@supermarket.com",
+                        PhoneNumber = $"0901{store.StoreID:D2}1111",
+                        DepartmentID = null,
+                        StoreID = store.StoreID,
+                        Status = true
+                    };
+                    users.Add(admin);
+                    // Director
+                    var director = new User
+                    {
+                        Username = $"director_{store.StoreID}",
+                        PasswordHash = passwordHash,
+                        FullName = $"Giám đốc {store.StoreName}",
+                        Email = $"director{store.StoreID}@supermarket.com",
+                        PhoneNumber = $"0902{store.StoreID:D2}2222",
+                        DepartmentID = null,
+                        StoreID = store.StoreID,
+                        Status = true
+                    };
+                    users.Add(director);
+
+                    // TeamLeader & Employee cho mỗi phòng ban
+                    foreach (var dept in storeDepartments)
+                    {
+                        // TeamLeader
+                        var leader = new User
+                        {
+                            Username = $"leader_{store.StoreID}_{dept.DepartmentID}",
+                            PasswordHash = passwordHash,
+                            FullName = $"Trưởng phòng {dept.DepartmentName} {store.StoreName}",
+                            Email = $"leader_{store.StoreID}_{dept.DepartmentID}@supermarket.com",
+                            PhoneNumber = $"0903{userIndex:D4}3333",
+                            DepartmentID = dept.DepartmentID,
+                            StoreID = store.StoreID,
+                            Status = true
+                        };
+                        users.Add(leader);
+
+                        // Employee
+                        var employee = new User
+                        {
+                            Username = $"employee_{store.StoreID}_{dept.DepartmentID}",
+                            PasswordHash = passwordHash,
+                            FullName = $"Nhân viên {dept.DepartmentName} {store.StoreName}",
+                            Email = $"employee_{store.StoreID}_{dept.DepartmentID}@supermarket.com",
+                            PhoneNumber = $"0904{userIndex:D4}4444",
+                            DepartmentID = dept.DepartmentID,
+                            StoreID = store.StoreID,
+                            Status = true
+                        };
+                        users.Add(employee);
+                        userIndex++;
+                    }
+                }
                 context.Users.AddRange(users);
                 context.SaveChanges();
-            }
 
-            // UserRoles
-            if (!context.UserRoles.Any())
-            {
-                var users = context.Users.ToList();
-                var roles = context.Roles.ToList();
-                context.UserRoles.AddRange(
-                    new UserRole { UserID = users.First(u => u.Username == "admin").UserID, RoleID = roles.First(r => r.RoleName == "Admin").RoleID },
-                    new UserRole { UserID = users.First(u => u.Username == "director").UserID, RoleID = roles.First(r => r.RoleName == "Director").RoleID },
-                    new UserRole { UserID = users.First(u => u.Username == "leader1").UserID, RoleID = roles.First(r => r.RoleName == "TeamLeader").RoleID },
-                    new UserRole { UserID = users.First(u => u.Username == "leader2").UserID, RoleID = roles.First(r => r.RoleName == "TeamLeader").RoleID },
-                    new UserRole { UserID = users.First(u => u.Username == "employee1").UserID, RoleID = roles.First(r => r.RoleName == "Employee").RoleID },
-                    new UserRole { UserID = users.First(u => u.Username == "employee2").UserID, RoleID = roles.First(r => r.RoleName == "Employee").RoleID },
-                    new UserRole { UserID = users.First(u => u.Username == "employee3").UserID, RoleID = roles.First(r => r.RoleName == "Employee").RoleID }
-                );
+                // Gán quyền cho user
+                foreach (var user in context.Users)
+                {
+                    if (user.Username.StartsWith("admin"))
+                    {
+                        userRoles.Add(new UserRole
+                        {
+                            UserID = user.UserID,
+                            RoleID = roles.First(r => r.RoleName == "Admin").RoleID
+                        });
+                    }
+                    else if (user.Username.StartsWith("director"))
+                    {
+                        userRoles.Add(new UserRole
+                        {
+                            UserID = user.UserID,
+                            RoleID = roles.First(r => r.RoleName == "Director").RoleID
+                        });
+                    }
+                    else if (user.Username.StartsWith("leader"))
+                    {
+                        userRoles.Add(new UserRole
+                        {
+                            UserID = user.UserID,
+                            RoleID = roles.First(r => r.RoleName == "TeamLeader").RoleID
+                        });
+                    }
+                    else if (user.Username.StartsWith("employee"))
+                    {
+                        userRoles.Add(new UserRole
+                        {
+                            UserID = user.UserID,
+                            RoleID = roles.First(r => r.RoleName == "Employee").RoleID
+                        });
+                    }
+                }
+                context.UserRoles.AddRange(userRoles);
                 context.SaveChanges();
             }
 
@@ -120,7 +221,7 @@ namespace ShiftManagement.Data
                 context.SaveChanges();
             }
 
-            // ShiftSchedules + ShiftScheduleDetails
+            // ShiftSchedules + ShiftScheduleDetails (giữ nguyên mẫu, bạn có thể thêm seed thêm nhiều lịch phân ca nếu muốn)
             if (!context.ShiftSchedules.Any())
             {
                 var users = context.Users.ToList();
@@ -128,14 +229,14 @@ namespace ShiftManagement.Data
                 var stores = context.Stores.ToList();
                 var shiftCodes = context.ShiftCodes.ToList();
 
-                // employee1 làm cả ngày
+                // Ví dụ: Phân ca mẫu cho 1 số user (bạn tự thêm nhiều nếu muốn)
                 var sched1 = new ShiftSchedule
                 {
-                    EmployeeID = users.First(u => u.Username == "employee1").UserID,
-                    DepartmentID = departments.First(d => d.DepartmentName.StartsWith("TPTS")).DepartmentID,
-                    StoreID = stores.First(s => s.StoreName.Contains("Hà Nội")).StoreID,
+                    EmployeeID = users.First(u => u.Username.StartsWith("employee_1")).UserID,
+                    DepartmentID = departments.First(d => d.DepartmentName.StartsWith("TPTS") && d.StoreID == stores[0].StoreID).DepartmentID,
+                    StoreID = stores[0].StoreID,
                     Date = new DateTime(2025, 8, 5),
-                    CreatedBy = users.First(u => u.Username == "leader1").UserID,
+                    CreatedBy = users.First(u => u.Username.StartsWith("leader_1")).UserID,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow,
                     ShiftScheduleDetails = new List<ShiftScheduleDetail>
@@ -150,58 +251,6 @@ namespace ShiftManagement.Data
                 };
                 context.ShiftSchedules.Add(sched1);
                 context.SaveChanges();
-
-                // employee2 làm nửa ngày sáng + chiều
-                var sched2 = new ShiftSchedule
-                {
-                    EmployeeID = users.First(u => u.Username == "employee2").UserID,
-                    DepartmentID = departments.First(d => d.DepartmentName.StartsWith("TPCN")).DepartmentID,
-                    StoreID = stores.First(s => s.StoreName.Contains("Hà Nội")).StoreID,
-                    Date = new DateTime(2025, 8, 5),
-                    CreatedBy = users.First(u => u.Username == "leader1").UserID,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow,
-                    ShiftScheduleDetails = new List<ShiftScheduleDetail>
-                    {
-                        new ShiftScheduleDetail
-                        {
-                            ShiftCodeID = shiftCodes.First(sc => sc.Code == "0.5").ShiftCodeID,
-                            ShiftType = "Morning",
-                            WorkUnit = 0.5m
-                        },
-                        new ShiftScheduleDetail
-                        {
-                            ShiftCodeID = shiftCodes.First(sc => sc.Code == "0.5").ShiftCodeID,
-                            ShiftType = "Afternoon",
-                            WorkUnit = 0.5m
-                        }
-                    }
-                };
-                context.ShiftSchedules.Add(sched2);
-                context.SaveChanges();
-
-                // employee3 nghỉ phép
-                var sched3 = new ShiftSchedule
-                {
-                    EmployeeID = users.First(u => u.Username == "employee3").UserID,
-                    DepartmentID = departments.First(d => d.DepartmentName.StartsWith("BPKHO")).DepartmentID,
-                    StoreID = stores.First(s => s.StoreName.Contains("TP.HCM")).StoreID,
-                    Date = new DateTime(2025, 8, 5),
-                    CreatedBy = users.First(u => u.Username == "leader2").UserID,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow,
-                    ShiftScheduleDetails = new List<ShiftScheduleDetail>
-                    {
-                        new ShiftScheduleDetail
-                        {
-                            ShiftCodeID = shiftCodes.First(sc => sc.Code == "PN").ShiftCodeID,
-                            ShiftType = "Morning",
-                            WorkUnit = 0.0m
-                        }
-                    }
-                };
-                context.ShiftSchedules.Add(sched3);
-                context.SaveChanges();
             }
 
             // ShiftHistory
@@ -209,25 +258,20 @@ namespace ShiftManagement.Data
             {
                 var schedules = context.ShiftSchedules.ToList();
                 var users = context.Users.ToList();
-                context.ShiftHistories.AddRange(
-                    new ShiftHistory
-                    {
-                        ScheduleID = schedules[0].ScheduleID,
-                        ChangedBy = users.First(u => u.Username == "admin").UserID,
-                        OldValue = "Ca cũ: null",
-                        NewValue = "Ca mới: X",
-                        ChangeDate = DateTime.UtcNow
-                    },
-                    new ShiftHistory
-                    {
-                        ScheduleID = schedules[1].ScheduleID,
-                        ChangedBy = users.First(u => u.Username == "leader1").UserID,
-                        OldValue = "Ca cũ: null",
-                        NewValue = "Ca mới: 0.5/0.5",
-                        ChangeDate = DateTime.UtcNow
-                    }
-                );
-                context.SaveChanges();
+                if (schedules.Count > 0)
+                {
+                    context.ShiftHistories.AddRange(
+                        new ShiftHistory
+                        {
+                            ScheduleID = schedules[0].ScheduleID,
+                            ChangedBy = users.First(u => u.Username.StartsWith("admin_")).UserID,
+                            OldValue = "Ca cũ: null",
+                            NewValue = "Ca mới: X",
+                            ChangeDate = DateTime.UtcNow
+                        }
+                    );
+                    context.SaveChanges();
+                }
             }
 
             // WorkUnitRules
@@ -256,9 +300,7 @@ namespace ShiftManagement.Data
             {
                 var users = context.Users.ToList();
                 context.Logs.AddRange(
-                    new Log { UserID = users.First(u => u.Username == "leader1").UserID, Action = "Phân ca cho nhân viên 5 ngày 2025-08-05 (ca X)", Timestamp = DateTime.UtcNow },
-                    new Log { UserID = users.First(u => u.Username == "leader1").UserID, Action = "Phân ca cho nhân viên 6 ngày 2025-08-05 (ca 0.5/0.5)", Timestamp = DateTime.UtcNow },
-                    new Log { UserID = users.First(u => u.Username == "leader2").UserID, Action = "Phân ca cho nhân viên 7 ngày 2025-08-05 (ca PN)", Timestamp = DateTime.UtcNow }
+                    new Log { UserID = users.First(u => u.Username.StartsWith("leader_1")).UserID, Action = "Phân ca cho nhân viên 1 ngày 2025-08-05 (ca X)", Timestamp = DateTime.UtcNow }
                 );
                 context.SaveChanges();
             }

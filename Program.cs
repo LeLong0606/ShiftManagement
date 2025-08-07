@@ -14,14 +14,19 @@ builder.Services.AddDbContext<ShiftManagementContext>(options =>
 // 2️⃣ Đăng ký MemoryCache
 builder.Services.AddMemoryCache();
 
-// 3️⃣ Cấu hình CORS
+// 3️⃣ Cấu hình CORS cho phép frontend truy cập API
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowBlazorClient",
-        policy => policy.WithOrigins("https://localhost:7250")
-                        .AllowAnyMethod()
-                        .AllowAnyHeader()
-                        .AllowCredentials());
+    options.AddPolicy("AllowFrontendLocalhost", policy =>
+    policy.WithOrigins(
+        "http://localhost:49250", // FE Vite
+        "https://localhost:49250", // FE Vite HTTPS (nếu dùng)
+        "https://localhost:7250"
+        // ... các domain khác
+    )
+    .AllowAnyMethod()
+    .AllowAnyHeader()
+    .AllowCredentials());
 });
 
 // 4️⃣ Cấu hình Controllers & JSON
@@ -43,7 +48,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidIssuer = builder.Configuration["Jwt:Issuer"],
             ValidAudience = builder.Configuration["Jwt:Audience"],
             IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
+                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? ""))
         };
     });
 
@@ -96,20 +101,21 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// Bật CORS trước Authentication
-app.UseCors("AllowBlazorClient");
+// ⚠️ Bật CORS trước Authentication & Authorization
+app.UseCors("AllowFrontendLocalhost");
 
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
 
-// 8️⃣ TỰ ĐỘNG MIGRATE VÀ SEED DATA
+// 8️⃣ TỰ ĐỘNG MIGRATE VÀ SEED DATA (nếu có SeedData)
 using (var scope = app.Services.CreateScope())
 {
     var context = scope.ServiceProvider.GetRequiredService<ShiftManagementContext>();
     context.Database.Migrate(); // Tự động cập nhật/migrate DB
-    SeedData.Initialize(context); // Seed dữ liệu mẫu
+    // Nếu có class SeedData thì gọi, nếu không hãy xóa dòng sau:
+    SeedData.Initialize(context); // Seed dữ liệu mẫu (bạn cần có class SeedData)
 }
 
 app.Run();
