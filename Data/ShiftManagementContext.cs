@@ -50,7 +50,6 @@ namespace ShiftManagement.Data
                 .HasIndex(s => new { s.EmployeeID, s.Date })
                 .IsUnique();
 
-            // Đánh chỉ mục cho User.Username và User.Email (unique)
             modelBuilder.Entity<User>()
                 .HasIndex(u => u.Username)
                 .IsUnique();
@@ -59,17 +58,52 @@ namespace ShiftManagement.Data
                 .HasIndex(u => u.Email)
                 .IsUnique();
 
-            // Đánh chỉ mục cho DepartmentName
             modelBuilder.Entity<Department>()
                 .HasIndex(d => d.DepartmentName);
 
-            // Đánh chỉ mục cho StoreName
             modelBuilder.Entity<Store>()
                 .HasIndex(s => s.StoreName);
 
-            // Đánh chỉ mục cho ShiftCode.Code (nếu cần tra cứu nhanh mã ca)
             modelBuilder.Entity<ShiftCode>()
                 .HasIndex(sc => sc.Code)
+                .IsUnique();
+
+            // Bổ sung chỉ mục tối ưu cho dữ liệu lớn
+            // ShiftSchedule
+            modelBuilder.Entity<ShiftSchedule>()
+                .HasIndex(s => new { s.DepartmentID, s.Date });
+            modelBuilder.Entity<ShiftSchedule>()
+                .HasIndex(s => new { s.StoreID, s.Date });
+
+            // ShiftScheduleDetail
+            modelBuilder.Entity<ShiftScheduleDetail>()
+                .HasIndex(sd => sd.ScheduleID);
+            modelBuilder.Entity<ShiftScheduleDetail>()
+                .HasIndex(sd => new { sd.ScheduleID, sd.ShiftCodeID });
+
+            // User
+            modelBuilder.Entity<User>()
+                .HasIndex(u => u.Status);
+            modelBuilder.Entity<User>()
+                .HasIndex(u => u.DepartmentID);
+            modelBuilder.Entity<User>()
+                .HasIndex(u => u.StoreID);
+
+            // ShiftHistory
+            modelBuilder.Entity<ShiftHistory>()
+                .HasIndex(h => h.ScheduleID);
+            modelBuilder.Entity<ShiftHistory>()
+                .HasIndex(h => h.ChangedBy);
+
+            // Log
+            modelBuilder.Entity<Log>()
+                .HasIndex(l => l.UserID);
+            modelBuilder.Entity<Log>()
+                .HasIndex(l => l.Timestamp);
+
+            // Holiday
+            modelBuilder.Entity<Holiday>()
+                .HasIndex(h => h.Date)
                 .IsUnique();
 
             // ShiftSchedule - CreatedBy (User)
