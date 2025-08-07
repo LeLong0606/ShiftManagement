@@ -1,8 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using ShiftManagement.Data;
 using ShiftManagement.DTOs;
+using ShiftManagement.Services;
 
 namespace ShiftManagement.Controllers
 {
@@ -11,49 +10,24 @@ namespace ShiftManagement.Controllers
     [Authorize(Roles = "Admin,Director,TeamLeader")]
     public class DepartmentsController : ControllerBase
     {
-        private readonly ShiftManagementContext _context;
+        private readonly DepartmentService _departmentService;
 
-        public DepartmentsController(ShiftManagementContext context)
+        public DepartmentsController(DepartmentService departmentService)
         {
-            _context = context;
+            _departmentService = departmentService;
         }
 
         [HttpGet]
         public async Task<ActionResult<IEnumerable<DepartmentDto>>> GetDepartments()
         {
-            var departments = await _context.Departments
-                .AsNoTracking()
-                .Include(d => d.Store)
-                .Select(d => new DepartmentDto
-                {
-                    DepartmentID = d.DepartmentID,
-                    DepartmentName = d.DepartmentName,
-                    StoreID = d.StoreID,
-                    StoreName = d.Store.StoreName,
-                    ManagerID = d.ManagerID
-                })
-                .ToListAsync();
-
+            var departments = await _departmentService.GetDepartmentsAsync();
             return Ok(departments);
         }
 
         [HttpGet("{id}")]
         public async Task<ActionResult<DepartmentDto>> GetDepartment(int id)
         {
-            var dept = await _context.Departments
-                .AsNoTracking()
-                .Include(d => d.Store)
-                .Where(d => d.DepartmentID == id)
-                .Select(d => new DepartmentDto
-                {
-                    DepartmentID = d.DepartmentID,
-                    DepartmentName = d.DepartmentName,
-                    StoreID = d.StoreID,
-                    StoreName = d.Store.StoreName,
-                    ManagerID = d.ManagerID
-                })
-                .FirstOrDefaultAsync();
-
+            var dept = await _departmentService.GetDepartmentAsync(id);
             if (dept == null) return NotFound();
             return Ok(dept);
         }
@@ -62,34 +36,16 @@ namespace ShiftManagement.Controllers
         [Authorize(Roles = "Admin,Director")]
         public async Task<ActionResult<DepartmentDto>> PostDepartment(DepartmentDto dto)
         {
-            var dept = new Models.Department
-            {
-                DepartmentName = dto.DepartmentName,
-                StoreID = dto.StoreID,
-                ManagerID = dto.ManagerID
-            };
-            _context.Departments.Add(dept);
-            await _context.SaveChangesAsync();
-
-            dto.DepartmentID = dept.DepartmentID;
-            // Optionally fetch StoreName from DB if you want to always return full info
-
-            return CreatedAtAction(nameof(GetDepartment), new { id = dept.DepartmentID }, dto);
+            var createdDept = await _departmentService.CreateDepartmentAsync(dto);
+            return CreatedAtAction(nameof(GetDepartment), new { id = createdDept.DepartmentID }, createdDept);
         }
 
         [HttpPut("{id}")]
         [Authorize(Roles = "Admin,Director")]
         public async Task<IActionResult> PutDepartment(int id, DepartmentDto dto)
         {
-            if (id != dto.DepartmentID) return BadRequest();
-
-            var dept = await _context.Departments.FindAsync(id);
-            if (dept == null) return NotFound();
-
-            dept.DepartmentName = dto.DepartmentName;
-            dept.StoreID = dto.StoreID;
-            dept.ManagerID = dto.ManagerID;
-            await _context.SaveChangesAsync();
+            var updated = await _departmentService.UpdateDepartmentAsync(id, dto);
+            if (!updated) return NotFound();
             return NoContent();
         }
 
@@ -97,11 +53,8 @@ namespace ShiftManagement.Controllers
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteDepartment(int id)
         {
-            var dept = await _context.Departments.FindAsync(id);
-            if (dept == null) return NotFound();
-
-            _context.Departments.Remove(dept);
-            await _context.SaveChangesAsync();
+            var deleted = await _departmentService.DeleteDepartmentAsync(id);
+            if (!deleted) return NotFound();
             return NoContent();
         }
     }

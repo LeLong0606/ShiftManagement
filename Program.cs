@@ -1,11 +1,25 @@
 ﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using ShiftManagement;
 using ShiftManagement.Data;
+using ShiftManagement.Services;
 using System.Text;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddScoped<AttendanceService>();
+builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<DepartmentService>();
+builder.Services.AddScoped<ExportService>();
+builder.Services.AddScoped<HolidayService>();
+builder.Services.AddScoped<LogService>();
+builder.Services.AddScoped<RoleService>();
+builder.Services.AddScoped<ScheduleService>();
+builder.Services.AddScoped<StoreService>();
+builder.Services.AddScoped<UserRoleService>();
+builder.Services.AddScoped<UserService>();
 
 // 1️⃣ Đăng ký DbContext
 builder.Services.AddDbContext<ShiftManagementContext>(options =>
@@ -106,6 +120,8 @@ app.UseCors("AllowFrontendLocalhost");
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.UseMiddleware<LoggingMiddleware>();
 
 app.MapControllers();
 

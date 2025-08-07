@@ -1,8 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using ShiftManagement.Data;
 using ShiftManagement.DTOs;
-using ShiftManagement.Models;
+using ShiftManagement.Services;
 using Microsoft.AspNetCore.Authorization;
 
 namespace ShiftManagement.Controllers
@@ -11,11 +9,11 @@ namespace ShiftManagement.Controllers
     [ApiController]
     public class LogsController : ControllerBase
     {
-        private readonly ShiftManagementContext _context;
+        private readonly LogService _logService;
 
-        public LogsController(ShiftManagementContext context)
+        public LogsController(LogService logService)
         {
-            _context = context;
+            _logService = logService;
         }
 
         /// <summary>
@@ -32,46 +30,7 @@ namespace ShiftManagement.Controllers
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 50)
         {
-            if (page < 1) page = 1;
-            if (pageSize < 1) pageSize = 50;
-
-            var query = _context.Logs
-                .AsNoTracking()
-                .Include(l => l.User)
-                .AsQueryable();
-
-            if (!string.IsNullOrEmpty(search))
-            {
-                string pattern = $"%{search}%";
-                query = query.Where(l =>
-                    EF.Functions.Like(l.Action, pattern) ||
-                    EF.Functions.Like(l.Description ?? "", pattern));
-            }
-
-            if (userId.HasValue)
-                query = query.Where(l => l.UserID == userId.Value);
-
-            if (from.HasValue)
-                query = query.Where(l => l.Timestamp >= from.Value);
-
-            if (to.HasValue)
-                query = query.Where(l => l.Timestamp <= to.Value);
-
-            var logs = await query
-                .OrderByDescending(l => l.Timestamp)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .Select(l => new LogDto
-                {
-                    LogID = l.LogID,
-                    UserID = l.UserID ?? 0, // SỬA: ép kiểu từ int? sang int
-                    Username = l.User != null ? l.User.Username : "",
-                    Action = l.Action,
-                    Description = l.Description,
-                    Timestamp = l.Timestamp
-                })
-                .ToListAsync();
-
+            var logs = await _logService.GetLogsAsync(search, userId, from, to, page, pageSize);
             return Ok(logs);
         }
 
@@ -82,24 +41,9 @@ namespace ShiftManagement.Controllers
         [Authorize]
         public async Task<ActionResult<LogDto>> GetLog(int id)
         {
-            var log = await _context.Logs
-                .AsNoTracking()
-                .Include(l => l.User)
-                .FirstOrDefaultAsync(l => l.LogID == id);
-
-            if (log == null)
+            var dto = await _logService.GetLogAsync(id);
+            if (dto == null)
                 return NotFound();
-
-            var dto = new LogDto
-            {
-                LogID = log.LogID,
-                UserID = log.UserID ?? 0, // SỬA: ép kiểu từ int? sang int
-                Username = log.User != null ? log.User.Username : "",
-                Action = log.Action,
-                Description = log.Description,
-                Timestamp = log.Timestamp
-            };
-
             return Ok(dto);
         }
 
@@ -113,35 +57,11 @@ namespace ShiftManagement.Controllers
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            // Nếu UserID không tồn tại, không cho tạo log.
-            if (!await _context.Users.AnyAsync(u => u.UserID == dto.UserID))
-                return NotFound(new { Message = "Người dùng không tồn tại." });
+            var (resultDto, error) = await _logService.CreateLogAsync(dto);
+            if (error != null)
+                return NotFound(new { Message = error });
 
-            var log = new Log
-            {
-                UserID = dto.UserID,
-                Action = dto.Action,
-                Description = dto.Description,
-                Timestamp = dto.Timestamp ?? DateTime.UtcNow
-            };
-
-            _context.Logs.Add(log);
-            await _context.SaveChangesAsync();
-
-            // Lấy lại thông tin username cho DTO trả về
-            var user = await _context.Users.FindAsync(dto.UserID);
-
-            var resultDto = new LogDto
-            {
-                LogID = log.LogID,
-                UserID = log.UserID ?? 0, // SỬA: ép kiểu từ int? sang int
-                Username = user?.Username ?? "",
-                Action = log.Action,
-                Description = log.Description,
-                Timestamp = log.Timestamp
-            };
-
-            return CreatedAtAction(nameof(GetLog), new { id = log.LogID }, resultDto);
+            return CreatedAtAction(nameof(GetLog), new { id = resultDto.LogID }, resultDto);
         }
 
         /// <summary>
@@ -151,12 +71,10 @@ namespace ShiftManagement.Controllers
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteLog(int id)
         {
-            var log = await _context.Logs.FindAsync(id);
-            if (log == null)
+            var deleted = await _logService.DeleteLogAsync(id);
+            if (!deleted)
                 return NotFound();
 
-            _context.Logs.Remove(log);
-            await _context.SaveChangesAsync();
             return NoContent();
         }
     }

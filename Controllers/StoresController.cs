@@ -1,8 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using ShiftManagement.Data;
 using ShiftManagement.DTOs;
-using ShiftManagement.Models;
+using ShiftManagement.Services;
 using Microsoft.AspNetCore.Authorization;
 
 namespace ShiftManagement.Controllers
@@ -11,11 +9,11 @@ namespace ShiftManagement.Controllers
     [ApiController]
     public class StoresController : ControllerBase
     {
-        private readonly ShiftManagementContext _context;
+        private readonly StoreService _storeService;
 
-        public StoresController(ShiftManagementContext context)
+        public StoresController(StoreService storeService)
         {
-            _context = context;
+            _storeService = storeService;
         }
 
         /// <summary>
@@ -29,33 +27,7 @@ namespace ShiftManagement.Controllers
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 50)
         {
-            if (page < 1) page = 1;
-            if (pageSize < 1) pageSize = 50;
-
-            var query = _context.Stores.AsNoTracking();
-
-            if (!string.IsNullOrEmpty(search))
-            {
-                string pattern = $"%{search}%";
-                query = query.Where(s =>
-                    EF.Functions.Like(s.StoreName, pattern) ||
-                    (s.Address != null && EF.Functions.Like(s.Address, pattern)) ||
-                    (s.Phone != null && EF.Functions.Like(s.Phone, pattern)));
-            }
-
-            var stores = await query
-                .OrderBy(s => s.StoreID)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .Select(s => new StoreDto
-                {
-                    StoreID = s.StoreID,
-                    StoreName = s.StoreName,
-                    Address = s.Address,
-                    Phone = s.Phone
-                })
-                .ToListAsync();
-
+            var stores = await _storeService.GetStoresAsync(search, page, pageSize);
             return Ok(stores);
         }
 
@@ -67,22 +39,9 @@ namespace ShiftManagement.Controllers
         [Authorize]
         public async Task<ActionResult<StoreDto>> GetStore(int id)
         {
-            var store = await _context.Stores
-                .AsNoTracking()
-                .Include(s => s.Departments)
-                .FirstOrDefaultAsync(s => s.StoreID == id);
-
-            if (store == null)
+            var dto = await _storeService.GetStoreAsync(id);
+            if (dto == null)
                 return NotFound();
-
-            var dto = new StoreDto
-            {
-                StoreID = store.StoreID,
-                StoreName = store.StoreName,
-                Address = store.Address,
-                Phone = store.Phone
-            };
-
             return Ok(dto);
         }
 
@@ -96,25 +55,9 @@ namespace ShiftManagement.Controllers
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            var store = new Store
-            {
-                StoreName = dto.StoreName,
-                Address = dto.Address,
-                Phone = dto.Phone
-            };
+            var resultDto = await _storeService.CreateStoreAsync(dto);
 
-            _context.Stores.Add(store);
-            await _context.SaveChangesAsync();
-
-            var resultDto = new StoreDto
-            {
-                StoreID = store.StoreID,
-                StoreName = store.StoreName,
-                Address = store.Address,
-                Phone = store.Phone
-            };
-
-            return CreatedAtAction(nameof(GetStore), new { id = store.StoreID }, resultDto);
+            return CreatedAtAction(nameof(GetStore), new { id = resultDto.StoreID }, resultDto);
         }
 
         /// <summary>
@@ -127,15 +70,10 @@ namespace ShiftManagement.Controllers
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            var store = await _context.Stores.FindAsync(id);
-            if (store == null)
+            var updated = await _storeService.UpdateStoreAsync(id, dto);
+            if (!updated)
                 return NotFound();
 
-            store.StoreName = dto.StoreName;
-            store.Address = dto.Address;
-            store.Phone = dto.Phone;
-
-            await _context.SaveChangesAsync();
             return NoContent();
         }
 
@@ -146,12 +84,10 @@ namespace ShiftManagement.Controllers
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteStore(int id)
         {
-            var store = await _context.Stores.FindAsync(id);
-            if (store == null)
+            var deleted = await _storeService.DeleteStoreAsync(id);
+            if (!deleted)
                 return NotFound();
 
-            _context.Stores.Remove(store);
-            await _context.SaveChangesAsync();
             return NoContent();
         }
     }
