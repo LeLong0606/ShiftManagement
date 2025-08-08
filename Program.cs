@@ -35,8 +35,10 @@ builder.Services.AddCors(options =>
     policy.WithOrigins(
         "http://localhost:49250", // FE Vite
         "https://localhost:49250", // FE Vite HTTPS (nếu dùng)
-        "https://localhost:7250"
-        // ... các domain khác
+        "https://localhost:7250",
+        "https://localhost:4200",
+        "http://localhost:4200"
+    // ... các domain khác
     )
     .AllowAnyMethod()
     .AllowAnyHeader()

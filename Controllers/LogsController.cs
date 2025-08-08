@@ -21,7 +21,7 @@ namespace ShiftManagement.Controllers
         /// Chỉ tài khoản đã đăng nhập mới truy cập được.
         /// </summary>
         [HttpGet]
-        [Authorize]
+        [Authorize(Roles = "Admin")]
         public async Task<ActionResult<IEnumerable<LogDto>>> GetLogs(
             [FromQuery] string? search = "",
             [FromQuery] int? userId = null,
@@ -38,7 +38,7 @@ namespace ShiftManagement.Controllers
         /// [GET] Lấy chi tiết một log theo ID. Chỉ tài khoản đã đăng nhập mới truy cập được.
         /// </summary>
         [HttpGet("{id:int}")]
-        [Authorize]
+        [Authorize(Roles = "Admin")]
         public async Task<ActionResult<LogDto>> GetLog(int id)
         {
             var dto = await _logService.GetLogAsync(id);

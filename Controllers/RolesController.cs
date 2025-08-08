@@ -17,7 +17,7 @@ namespace ShiftManagement.Controllers
         }
 
         [HttpGet]
-        [Authorize]
+        [Authorize(Roles = "Admin")]
         public async Task<ActionResult<IEnumerable<RoleDto>>> GetRoles(
             [FromQuery] string? search = "",
             [FromQuery] int page = 1,
@@ -28,7 +28,7 @@ namespace ShiftManagement.Controllers
         }
 
         [HttpGet("{id:int}")]
-        [Authorize]
+        [Authorize(Roles = "Admin")]
         public async Task<ActionResult<RoleDto>> GetRole(int id)
         {
             var dto = await _roleService.GetRoleAsync(id);
