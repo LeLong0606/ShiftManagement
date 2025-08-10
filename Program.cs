@@ -22,6 +22,7 @@ builder.Services.AddScoped<ScheduleService>();
 builder.Services.AddScoped<StoreService>();
 builder.Services.AddScoped<UserRoleService>();
 builder.Services.AddScoped<UserService>();
+builder.Services.AddScoped<ISamsDataMigrator, SamsDataMigrator>();
 
 // 1️⃣ Đăng ký DbContext
 builder.Services.AddDbContext<ShiftManagementContext>(options =>
