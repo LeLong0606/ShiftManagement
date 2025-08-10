@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+﻿using AutoMapper;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using ShiftManagement;
@@ -9,6 +10,7 @@ using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// 0️⃣ Đăng ký các dịch vụ hiện có (module cũ)
 builder.Services.AddScoped<AttendanceService>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<DepartmentService>();
@@ -25,33 +27,44 @@ builder.Services.AddScoped<UserService>();
 builder.Services.AddDbContext<ShiftManagementContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// 2️⃣ Đăng ký MemoryCache
+builder.Services.AddDbContext<SamsDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("SamsConnection"),
+        sql => sql.MigrationsHistoryTable("__EFMigrationsHistory", "sams")));
+
+// 2️⃣ MemoryCache
 builder.Services.AddMemoryCache();
 
-// 3️⃣ Cấu hình CORS cho phép frontend truy cập API
+// 2.1️⃣ AutoMapper (nạp các Profile, bao gồm SamsProfile)
+builder.Services.AddAutoMapper(typeof(ShiftManagement.Profiles.SamsProfile).Assembly);
+// Nếu có nhiều Profile ở các assembly khác: builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
+
+// 2.2️⃣ (Tuỳ chọn) Dùng cho resolver lấy user hiện tại
+builder.Services.AddHttpContextAccessor();
+
+// 3️⃣ CORS cho frontend
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontendLocalhost", policy =>
-    policy.WithOrigins(
-        "http://localhost:49250", // FE Vite
-        "https://localhost:49250", // FE Vite HTTPS (nếu dùng)
-        "https://localhost:7250",
-        "https://localhost:4200",
-        "http://localhost:4200"
-    // ... các domain khác
-    )
-    .AllowAnyMethod()
-    .AllowAnyHeader()
-    .AllowCredentials());
+        policy.WithOrigins(
+                "http://localhost:49250",
+                "https://localhost:49250",
+                "https://localhost:7250",
+                "https://localhost:4200",
+                "http://localhost:4200"
+            )
+            .AllowAnyMethod()
+            .AllowAnyHeader()
+            .AllowCredentials()
+    );
 });
 
-// 4️⃣ Cấu hình Controllers & JSON
+// 4️⃣ Controllers & JSON
 builder.Services.AddControllers()
     .AddJsonOptions(x =>
         x.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles
     );
 
-// 5️⃣ Cấu hình Authentication (JWT)
+// 5️⃣ Authentication (JWT)
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -70,7 +83,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
-// 6️⃣ Swagger + JWT Support
+// 6️⃣ Swagger + JWT
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -117,7 +130,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// ⚠️ Bật CORS trước Authentication & Authorization
+// Bật CORS trước AuthN/AuthZ
 app.UseCors("AllowFrontendLocalhost");
 
 app.UseAuthentication();
@@ -127,13 +140,22 @@ app.UseMiddleware<LoggingMiddleware>();
 
 app.MapControllers();
 
-// 8️⃣ TỰ ĐỘNG MIGRATE VÀ SEED DATA (nếu có SeedData)
+// 8️⃣ Tự động migrate và seed dữ liệu cho cả 2 DB
 using (var scope = app.Services.CreateScope())
 {
-    var context = scope.ServiceProvider.GetRequiredService<ShiftManagementContext>();
-    context.Database.Migrate(); // Tự động cập nhật/migrate DB
-    // Nếu có class SeedData thì gọi, nếu không hãy xóa dòng sau:
-    SeedData.Initialize(context); // Seed dữ liệu mẫu (bạn cần có class SeedData)
+    // DB cũ
+    var main = scope.ServiceProvider.GetRequiredService<ShiftManagementContext>();
+    main.Database.Migrate();
+    SeedData.Initialize(main); // Seed cho hệ thống cũ
+
+    // DB Sams (DB riêng)
+    var sams = scope.ServiceProvider.GetRequiredService<SamsDbContext>();
+    sams.Database.Migrate();
+    SeedDataSams.Initialize(sams); // Seed cho Sams (mới)
+
+    // (Tuỳ chọn) Kiểm tra cấu hình AutoMapper để phát hiện lỗi mapping sớm
+    var mapper = scope.ServiceProvider.GetRequiredService<IMapper>();
+    mapper.ConfigurationProvider.AssertConfigurationIsValid();
 }
 
 app.Run();
