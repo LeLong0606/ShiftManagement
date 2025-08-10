@@ -37,7 +37,7 @@ namespace ShiftManagement.Services
             await EnsureBasePositionsAsync(ct);
 
             var locMap = await MigrateLocationsAsync(overwrite, ct);                 // StoreID -> LocationID
-            var deptMap = await MigrateDepartmentsAsync(locMap, overwrite, ct);      // StoreID -> DepartmentID (MAIN)
+            var deptMap = await MigrateDepartmentsAsync(locMap, overwrite, ct);      // StoreID -> DepartmentID (Code = S{StoreID})
             var teamMap = await MigrateTeamsAsync(deptMap, overwrite, ct);           // StoreID -> TeamID (DEFAULT)
 
             var posMap = await MigratePositionsFromRolesAsync(overwrite, ct);        // "EMP"/"LEAD" ids (already ensured)
@@ -141,21 +141,22 @@ namespace ShiftManagement.Services
             return storeToLoc;
         }
 
-        // 2) Department mặc định mỗi Store: Code = MAIN
+        // 2) Department cho mỗi Store: dùng code gốc theo Store (Code = "S{StoreID}"), không dùng "MAIN"
         private async Task<Dictionary<int, int>> MigrateDepartmentsAsync(Dictionary<int, int> storeToLoc, bool overwrite, CancellationToken ct)
         {
-            _logger.LogInformation("Migrating Departments (per Store -> MAIN)...");
+            _logger.LogInformation("Migrating Departments (per Store, dùng code S{StoreID}, không dùng 'MAIN')...");
             var deptMap = new Dictionary<int, int>(); // StoreID -> DepartmentID
 
-            // build index by (LocationID, Code="MAIN")
+            // Tải tất cả departments hiện có để index theo (LocationID, Code)
             var existing = await _sams.Departments
                 .AsNoTracking()
-                .Where(d => d.Code == "MAIN")
                 .ToListAsync(ct);
 
-            var byLoc = existing.GroupBy(d => d.LocationID).ToDictionary(g => g.Key, g => g.First());
+            var byLocAndCode = existing
+                .GroupBy(d => (d.LocationID, d.Code))
+                .ToDictionary(g => g.Key, g => g.First());
 
-            // Need store list for names
+            // Lấy store danh mục để đặt tên
             var stores = await _main.Set<Store>().AsNoTracking().ToListAsync(ct);
 
             var toInsert = new List<SamsDepartment>();
@@ -165,11 +166,17 @@ namespace ShiftManagement.Services
             {
                 if (!storeToLoc.TryGetValue(s.StoreID, out var locId)) continue;
 
-                if (byLoc.TryGetValue(locId, out var dept))
+                // Dùng định danh theo dữ liệu gốc: S{StoreID}
+                var deptCode = $"S{s.StoreID}";
+                var deptName = s.StoreName?.Trim() ?? deptCode;
+
+                var key = (locId, deptCode);
+
+                if (byLocAndCode.TryGetValue(key, out var dept))
                 {
                     if (overwrite)
                     {
-                        dept.Name = s.StoreName?.Trim() ?? dept.Name;
+                        dept.Name = deptName;
                         toUpdate.Add(dept);
                     }
                     deptMap[s.StoreID] = dept.DepartmentID;
@@ -179,8 +186,8 @@ namespace ShiftManagement.Services
                     var nd = new SamsDepartment
                     {
                         LocationID = locId,
-                        Code = "MAIN",
-                        Name = s.StoreName?.Trim() ?? "Main",
+                        Code = deptCode,
+                        Name = deptName,
                         IsActive = true
                     };
                     toInsert.Add(nd);
@@ -192,20 +199,25 @@ namespace ShiftManagement.Services
                 _sams.Departments.AddRange(toInsert);
                 await _sams.SaveChangesAsync(ct);
                 foreach (var d in toInsert)
-                    byLoc[d.LocationID] = d;
+                    byLocAndCode[(d.LocationID, d.Code)] = d;
             }
             if (toUpdate.Count > 0)
             {
                 _sams.Departments.UpdateRange(toUpdate);
                 await _sams.SaveChangesAsync(ct);
                 foreach (var d in toUpdate)
-                    byLoc[d.LocationID] = d;
+                    byLocAndCode[(d.LocationID, d.Code)] = d;
             }
 
             foreach (var s in stores)
             {
-                if (storeToLoc.TryGetValue(s.StoreID, out var locId) && byLoc.TryGetValue(locId, out var dept))
-                    deptMap[s.StoreID] = dept.DepartmentID;
+                if (storeToLoc.TryGetValue(s.StoreID, out var locId))
+                {
+                    var deptCode = $"S{s.StoreID}";
+                    var key = (locId, deptCode);
+                    if (byLocAndCode.TryGetValue(key, out var dept))
+                        deptMap[s.StoreID] = dept.DepartmentID;
+                }
             }
 
             _logger.LogInformation("Departments migrated: {Count}", deptMap.Count);
@@ -467,9 +479,9 @@ namespace ShiftManagement.Services
                     var code = sc.Code?.Trim();
                     if (!string.IsNullOrEmpty(code) && existing.TryGetValue(code, out var sb))
                     {
-                        var isLeave = sc.IsLeave;
-                        var isOff = !isLeave && sc.WorkUnit == 0m;
-                        map[code] = (sb.ShiftBaseID, isLeave, isOff);
+                        var isLeave2 = sc.IsLeave;
+                        var isOff2 = !isLeave2 && sc.WorkUnit == 0m;
+                        map[code] = (sb.ShiftBaseID, isLeave2, isOff2);
                     }
                 }
             }
@@ -630,9 +642,6 @@ namespace ShiftManagement.Services
                 p => (p.TeamID, p.PeriodStartDate.Year, p.PeriodStartDate.Month),
                 p => p);
 
-            // For conflict handling on RosterEntry: we will upsert by (RosterPeriodID, EmployeeID, WorkDate)
-            // Load existing keys lazily per period when needed.
-
             // Build source query joining details
             var detailsQ =
                 from d in _main.Set<ShiftScheduleDetail>().AsNoTracking()
@@ -651,7 +660,6 @@ namespace ShiftManagement.Services
                 };
 
             // Group per day per user to select 1 representative code
-            // We’ll stream ordered by date to keep memory sane
             var ordered = detailsQ.OrderBy(x => x.Date).ThenBy(x => x.EmployeeID).ThenBy(x => x.DetailID);
 
             // Batch by date windows
